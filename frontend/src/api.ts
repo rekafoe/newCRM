@@ -36,3 +36,5 @@ export const updateDailyReport = (date: string, data: {
   total_revenue?: number;
 }) =>
   api.patch<DailyReport>(`/daily/${date}`, data);
+
+export const getPresets = () => api.get<PresetCategory[]>('/presets');

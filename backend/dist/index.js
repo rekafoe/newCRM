@@ -174,6 +174,23 @@ async function main() {
            WHERE pm.presetCategory = ? AND pm.presetDescription = ?`, req.params.category, req.params.description);
         res.json(rows);
     }));
+    // GET /api/presets — список категорий с их товарами и допами
+    app.get('/api/presets', asyncHandler(async (_req, res) => {
+        const categories = (await db.all('SELECT id, category, color FROM preset_categories ORDER BY category'));
+        const items = (await db.all('SELECT id, category_id, description, price FROM preset_items'));
+        const extras = (await db.all('SELECT id, category_id, name, price, type, unit FROM preset_extras'));
+        const result = categories.map((c) => ({
+            category: c.category,
+            color: c.color,
+            items: items
+                .filter((i) => i.category_id === c.id)
+                .map((i) => ({ description: i.description, price: i.price })),
+            extras: extras
+                .filter((e) => e.category_id === c.id)
+                .map((e) => ({ name: e.name, price: e.price, type: e.type, unit: e.unit || undefined }))
+        }));
+        res.json(result);
+    }));
     // POST /api/product-materials — задать состав материалов для пресета
     app.post('/api/product-materials', asyncHandler(async (req, res) => {
         const { presetCategory, presetDescription, materials } = req.body;
