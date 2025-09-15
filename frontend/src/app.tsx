@@ -4,10 +4,7 @@ import { Order } from "./types";
 import {
   getOrders,
   createOrder,
-  addOrderItem,
-  updateOrderStatus,
   deleteOrder,
-  deleteOrderItem,
 } from "./api";
 import { Link } from 'react-router-dom';
 import AddItemModal from "./components/AddItemModal";
@@ -65,20 +62,23 @@ export default function App() {
         <button className="add-order-btn" onClick={handleCreateOrder}>
           + Добавить заказ
         </button>
-        <button
-          onClick={() => onDeleteOrder(o.id)}
-          title="Удалить заказ"
-          style={{
-            marginLeft: 8,
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: '#c00',
-            fontSize: '1.2rem'
-  }}
->
-  Удалить заказ
-</button>
+        {selectedOrder && (
+          <button
+            onClick={() => deleteOrder(selectedOrder.id).then(loadOrders)}
+            title="Удалить заказ"
+            style={{
+              marginTop: 8,
+              background: 'none',
+              border: '1px solid #c00',
+              cursor: 'pointer',
+              color: '#c00',
+              borderRadius: 4,
+              padding: '8px'
+            }}
+          >
+            Удалить выбранный заказ
+          </button>
+        )}
         <button
           className="add-order-btn"
           style={{ marginTop: 8 }}
@@ -101,7 +101,11 @@ export default function App() {
 
             {/* ====== ВСТАВЛЯЕМ ПРОГРЕСС-БАР ====== */}
             <ProgressBar
-              current={selectedOrder.status as OrderStatus}
+              current={
+                (['Новый','В производстве','Готов к отправке','Отправлен','Завершён'] as OrderStatus[])[
+                  Math.min(Math.max(Number(selectedOrder.status) - 1, 0), 4)
+                ]
+              }
               height="12px"
               fillColor="#1976d2"
               bgColor="#e0e0e0"
@@ -126,10 +130,8 @@ export default function App() {
                 id: it.id,
                 type: it.type,
                 price: it.price,
-                quantity: it.quantity,
-                serviceCost: it.serviceCost,
               }))}
-              discount={selectedOrder.discount}
+              discount={0}
               taxRate={0.2}
             />
           </>

@@ -1,0 +1,16 @@
+import axios from 'axios';
+const api = axios.create({ baseURL: '/api' });
+export const getOrders = () => api.get('/orders');
+export const createOrder = () => api.post('/orders');
+export const updateOrderStatus = (id, status) => api.put(`/orders/${id}/status`, { status });
+export const addOrderItem = (id, item) => api.post(`/orders/${id}/items`, item);
+export const deleteOrder = (id) => api.delete(`/orders/${id}`);
+export const deleteOrderItem = (orderId, itemId) => api.delete(`/orders/${orderId}/items/${itemId}`);
+export const getMaterials = () => api.get('/materials');
+export const saveMaterial = (mat) => api.post('/materials', mat);
+export const deleteMaterial = (id) => api.delete(`/materials/${id}`);
+export const getProductMaterials = (cat, desc) => api.get(`/product-materials/${encodeURIComponent(cat)}/${encodeURIComponent(desc)}`);
+export const saveProductMaterials = (cfg) => api.post('/product-materials', cfg);
+export const getDailyReports = () => api.get('/daily-reports');
+export const getDailyReportByDate = (date) => api.get(`/daily/${date}`);
+export const updateDailyReport = (date, data) => api.patch(`/daily/${date}`, data);

@@ -3,13 +3,14 @@
 import sqlite3 from 'sqlite3'
 import { open, Database } from 'sqlite'
 import path from 'path'
-import config from '../knexfile';
-import knex from 'knex';
+
 const DB_FILE = path.resolve(__dirname, '../data.db')
-const env = process.env.NODE_ENV || 'development';
-export default knex(config[env]);
+
+let dbInstance: Database | null = null
 
 export async function initDB(): Promise<Database> {
+  if (dbInstance) return dbInstance
+
   console.log('📂 Opening database at', DB_FILE)
   const db = await open({
     filename: DB_FILE,
@@ -45,8 +46,17 @@ export async function initDB(): Promise<Database> {
       qtyPerItem REAL NOT NULL,
       FOREIGN KEY(materialId) REFERENCES materials(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS daily_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      report_date TEXT NOT NULL UNIQUE,
+      orders_count INTEGER NOT NULL DEFAULT 0,
+      total_revenue REAL NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT
+    );
   `)
 
   console.log('✅ Database schema is ready')
+  dbInstance = db
   return db
 }

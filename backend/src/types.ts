@@ -33,4 +33,5 @@ export interface DailyReport {
   orders_count: number;
   total_revenue: number;
   created_at: string;     // ISO timestamp
+  updated_at?: string;
 }

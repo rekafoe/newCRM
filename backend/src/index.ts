@@ -3,33 +3,30 @@
 import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import { initDB } from './db'
-import { Order, Item, Material, ProductMaterial } from './types'
-import reportRoutes from './routes/reportRoutes';
+import { Order, Item, Material, ProductMaterial, DailyReport } from './types'
 import 'dotenv/config';
-import orderRoutes from './routes/orderRoutes';
 async function main() {
   const db = await initDB()
   const app = express()
 
   app.use(cors())
   app.use(express.json())
-  app.use('/api', reportRoutes);
-  app.use('/api', orderRoutes);
+  // Routes are defined inline against sqlite database
   // Обёртка для async-роутов
   const asyncHandler =
     (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) =>
-    (req, res, next) =>
+    (req: Request, res: Response, next: NextFunction) =>
       fn(req, res, next).catch(next)
 
   // GET /api/orders — список заказов с их позициями
   app.get(
     '/api/orders',
     asyncHandler(async (_req, res) => {
-      const orders = await db.all<Order>(
+      const orders = (await db.all<Order>(
         'SELECT id, number, status, createdAt FROM orders ORDER BY id DESC'
-      )
+      )) as unknown as Order[]
       for (const o of orders) {
-        const itemsRaw = await db.all<{
+        const itemsRaw = (await db.all<{
           id: number
           orderId: number
           type: string
@@ -38,7 +35,13 @@ async function main() {
         }>(
           'SELECT id, orderId, type, params, price FROM items WHERE orderId = ?',
           o.id
-        )
+        )) as unknown as Array<{
+          id: number
+          orderId: number
+          type: string
+          params: string
+          price: number
+        }>
         o.items = itemsRaw.map(ir => ({
           id: ir.id,
           orderId: ir.orderId,
@@ -103,7 +106,7 @@ async function main() {
       }
 
       // Узнаём материалы и остатки
-      const needed = await db.all<{
+      const needed = (await db.all<{
         materialId: number
         qtyPerItem: number
         quantity: number
@@ -114,7 +117,11 @@ async function main() {
            WHERE pm.presetCategory = ? AND pm.presetDescription = ?`,
         type,
         params.description
-      )
+      )) as unknown as Array<{
+        materialId: number
+        qtyPerItem: number
+        quantity: number
+      }>
 
       // Транзакция: проверка остатков, списание и вставка позиции
       await db.run('BEGIN')
@@ -166,6 +173,71 @@ async function main() {
         await db.run('ROLLBACK')
         throw e
       }
+    })
+  )
+
+  // ===== Daily Reports =====
+  app.get(
+    '/api/daily-reports',
+    asyncHandler(async (_req, res) => {
+      const rows = (await db.all<DailyReport>(
+        'SELECT id, report_date, orders_count, total_revenue, created_at, updated_at FROM daily_reports ORDER BY report_date DESC'
+      )) as unknown as DailyReport[]
+      res.json(rows)
+    })
+  )
+
+  app.get(
+    '/api/daily/:date',
+    asyncHandler(async (req, res) => {
+      const row = await db.get<DailyReport>(
+        'SELECT id, report_date, orders_count, total_revenue, created_at, updated_at FROM daily_reports WHERE report_date = ?',
+        req.params.date
+      )
+      if (!row) {
+        res.status(404).json({ message: 'Отчёт не найден' })
+        return
+      }
+      res.json(row)
+    })
+  )
+
+  app.patch(
+    '/api/daily/:date',
+    asyncHandler(async (req, res) => {
+      const { orders_count, total_revenue } = req.body as {
+        orders_count?: number
+        total_revenue?: number
+      }
+      if (orders_count == null && total_revenue == null) {
+        res.status(400).json({ message: 'Нет данных для обновления' })
+        return
+      }
+      const existing = await db.get<DailyReport>(
+        'SELECT id FROM daily_reports WHERE report_date = ?',
+        req.params.date
+      )
+      if (!existing) {
+        res.status(404).json({ message: 'Отчёт не найден' })
+        return
+      }
+
+      await db.run(
+        `UPDATE daily_reports
+           SET 
+             ${orders_count != null ? 'orders_count = ?,' : ''}
+             ${total_revenue != null ? 'total_revenue = ?,' : ''}
+             updated_at = datetime('now')
+         WHERE report_date = ?`,
+        ...([orders_count != null ? orders_count : []] as any),
+        ...([total_revenue != null ? total_revenue : []] as any),
+        req.params.date
+      )
+      const updated = await db.get<DailyReport>(
+        'SELECT id, report_date, orders_count, total_revenue, created_at, updated_at FROM daily_reports WHERE report_date = ?',
+        req.params.date
+      )
+      res.json(updated)
     })
   )
 
