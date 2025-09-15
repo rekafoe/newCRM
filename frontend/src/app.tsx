@@ -68,9 +68,13 @@ export default function App() {
             className="btn-danger"
             style={{ marginTop: 8 }}
             onClick={async () => {
-              await deleteOrder(selectedOrder.id);
-              setSelectedId(null);
-              loadOrders();
+              try {
+                await deleteOrder(selectedOrder.id);
+                setSelectedId(null);
+                loadOrders();
+              } catch (e: any) {
+                alert('Не удалось удалить заказ. Возможно нужна авторизация.');
+              }
             }}
           >
             Удалить заказ
@@ -122,8 +126,12 @@ export default function App() {
                   <button
                     className="btn-danger"
                     onClick={async () => {
-                      await deleteOrderItem(selectedOrder.id, it.id);
-                      loadOrders();
+                      try {
+                        await deleteOrderItem(selectedOrder.id, it.id);
+                        loadOrders();
+                      } catch (e: any) {
+                        alert('Не удалось удалить позицию. Возможно нужна авторизация.');
+                      }
                     }}
                   >
                     Удалить

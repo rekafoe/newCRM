@@ -1,5 +1,25 @@
 import axios from 'axios';
 const api = axios.create({ baseURL: '/api' });
+// Attach auth token from localStorage for protected endpoints
+api.interceptors.request.use((config) => {
+    try {
+        const token = localStorage.getItem('crmToken');
+        if (token) {
+            config.headers = {
+                ...(config.headers || {}),
+                Authorization: `Bearer ${token}`
+            };
+        }
+    }
+    catch { }
+    return config;
+});
+export function setAuthToken(token) {
+    if (token)
+        localStorage.setItem('crmToken', token);
+    else
+        localStorage.removeItem('crmToken');
+}
 export const getOrders = () => api.get('/orders');
 export const createOrder = () => api.post('/orders');
 export const updateOrderStatus = (id, status) => api.put(`/orders/${id}/status`, { status });

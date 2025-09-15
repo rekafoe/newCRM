@@ -2,6 +2,25 @@ import axios from 'axios';
 import { Order, Item, PresetCategory, MaterialRow, Material, DailyReport, UserRef } from './types';
 const api = axios.create({ baseURL: '/api' });
 
+// Attach auth token from localStorage for protected endpoints
+api.interceptors.request.use((config) => {
+  try {
+    const token = localStorage.getItem('crmToken');
+    if (token) {
+      config.headers = {
+        ...(config.headers || {}),
+        Authorization: `Bearer ${token}`
+      } as any;
+    }
+  } catch {}
+  return config;
+});
+
+export function setAuthToken(token?: string) {
+  if (token) localStorage.setItem('crmToken', token);
+  else localStorage.removeItem('crmToken');
+}
+
 export const getOrders = () => api.get<Order[]>('/orders');
 export const createOrder = () => api.post<Order>('/orders');
 export const updateOrderStatus = (id: number, status: number) =>
