@@ -15,3 +15,5 @@ export const getDailyReports = () => api.get('/daily-reports');
 export const getDailyReportByDate = (date) => api.get(`/daily/${date}`);
 export const updateDailyReport = (date, data) => api.patch(`/daily/${date}`, data);
 export const getPresets = () => api.get('/presets');
+export const getUsers = () => api.get('/users');
+export const createDailyReport = (data) => api.post('/daily', data);

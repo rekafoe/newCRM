@@ -20,6 +20,12 @@ async function initDB() {
     });
     await db.exec(`
     PRAGMA foreign_keys = ON;
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      email TEXT,
+      phone TEXT
+    );
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       number TEXT UNIQUE,
@@ -60,7 +66,8 @@ async function initDB() {
       orders_count INTEGER NOT NULL DEFAULT 0,
       total_revenue REAL NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT
+      updated_at TEXT,
+      user_id INTEGER
     );
     CREATE TABLE IF NOT EXISTS preset_categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,13 +101,30 @@ async function initDB() {
         "ALTER TABLE orders ADD COLUMN prepaymentAmount REAL DEFAULT 0",
         "ALTER TABLE orders ADD COLUMN prepaymentStatus TEXT",
         "ALTER TABLE orders ADD COLUMN paymentUrl TEXT",
-        "ALTER TABLE orders ADD COLUMN paymentId TEXT"
+        "ALTER TABLE orders ADD COLUMN paymentId TEXT",
+        "ALTER TABLE daily_reports ADD COLUMN user_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports(report_date)",
+        "CREATE INDEX IF NOT EXISTS idx_daily_reports_user ON daily_reports(user_id)"
     ];
     for (const sql of alters) {
         try {
             await db.exec(sql);
         }
         catch { }
+    }
+    // Seed users if empty
+    const userCount = await db.get(`SELECT COUNT(1) as c FROM users`);
+    if (!userCount || Number(userCount.c) === 0) {
+        console.log('🌱 Seeding users...');
+        const users = [
+            { name: 'Менеджер 1', email: 'm1@example.com', phone: '+375290000001' },
+            { name: 'Менеджер 2', email: 'm2@example.com', phone: '+375290000002' },
+            { name: 'Менеджер 3', email: 'm3@example.com', phone: '+375290000003' }
+        ];
+        for (const u of users) {
+            await db.run('INSERT OR IGNORE INTO users (name, email, phone) VALUES (?, ?, ?)', u.name, u.email, u.phone);
+        }
+        console.log('✅ Users seeded');
     }
     // Seed presets if empty
     const countRow = await db.get(`SELECT COUNT(1) as c FROM preset_categories`);

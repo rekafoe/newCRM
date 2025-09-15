@@ -1,10 +1,6 @@
 // frontend/src/pages/DailyReportPage.tsx
 import React, { useEffect, useState } from 'react';
-import {
-  getDailyReports,
-  getDailyReportByDate,
-  updateDailyReport
-} from '../api';
+import { getDailyReports, getDailyReportByDate, updateDailyReport, createDailyReport, getUsers } from '../api';
 import { DailyReport } from '../types';
 import EditModal from '../components/EditReportModal';
 
@@ -13,6 +9,7 @@ export const DailyReportPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [report, setReport] = useState<DailyReport | null>(null);
   const [isModalOpen, setModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     getDailyReports().then(res => {
@@ -35,6 +32,20 @@ export const DailyReportPage: React.FC = () => {
     <div style={{ display: 'flex', padding: 16 }}>
       <aside style={{ width: 200, marginRight: 16 }}>
         <h2>Архив отчётов</h2>
+        <button
+          style={{ marginBottom: 8 }}
+          onClick={async () => {
+            const today = new Date().toISOString().slice(0,10);
+            setCreating(true);
+            try {
+              await createDailyReport({ report_date: today });
+              const res = await getDailyReports();
+              setHistory(res.data);
+              setSelectedDate(today);
+            } finally { setCreating(false); }
+          }}
+          disabled={creating}
+        >Создать отчёт за сегодня</button>
         <div style={{ maxHeight: 300, overflowY: 'auto' }}>
           {history.map(r => (
             <div
@@ -81,6 +92,9 @@ export const DailyReportPage: React.FC = () => {
               updates
             );
             setReport(res.data);
+            // обновим имя пользователя в списке
+            const refreshed = await getDailyReports();
+            setHistory(refreshed.data);
             setModalOpen(false);
           }}
         />

@@ -214,9 +214,13 @@ async function main() {
   app.get(
     '/api/daily-reports',
     asyncHandler(async (_req, res) => {
-      const rows = (await db.all<DailyReport>(
-        'SELECT id, report_date, orders_count, total_revenue, created_at, updated_at FROM daily_reports ORDER BY report_date DESC'
-      )) as unknown as DailyReport[]
+      const rows = (await db.all<DailyReport & { user_name: string | null }>(
+        `SELECT dr.id, dr.report_date, dr.orders_count, dr.total_revenue, dr.created_at, dr.updated_at, dr.user_id,
+                u.name as user_name
+           FROM daily_reports dr
+           LEFT JOIN users u ON u.id = dr.user_id
+           ORDER BY dr.report_date DESC`
+      )) as unknown as Array<DailyReport & { user_name: string | null }>
       res.json(rows)
     })
   )
@@ -224,8 +228,12 @@ async function main() {
   app.get(
     '/api/daily/:date',
     asyncHandler(async (req, res) => {
-      const row = await db.get<DailyReport>(
-        'SELECT id, report_date, orders_count, total_revenue, created_at, updated_at FROM daily_reports WHERE report_date = ?',
+      const row = await db.get<DailyReport & { user_name: string | null }>(
+        `SELECT dr.id, dr.report_date, dr.orders_count, dr.total_revenue, dr.created_at, dr.updated_at, dr.user_id,
+                u.name as user_name
+           FROM daily_reports dr
+           LEFT JOIN users u ON u.id = dr.user_id
+          WHERE dr.report_date = ?`,
         req.params.date
       )
       if (!row) {
@@ -239,11 +247,12 @@ async function main() {
   app.patch(
     '/api/daily/:date',
     asyncHandler(async (req, res) => {
-      const { orders_count, total_revenue } = req.body as {
+      const { orders_count, total_revenue, user_id } = req.body as {
         orders_count?: number
         total_revenue?: number
+        user_id?: number
       }
-      if (orders_count == null && total_revenue == null) {
+      if (orders_count == null && total_revenue == null && user_id == null) {
         res.status(400).json({ message: 'Нет данных для обновления' })
         return
       }
@@ -261,17 +270,64 @@ async function main() {
            SET 
              ${orders_count != null ? 'orders_count = ?,' : ''}
              ${total_revenue != null ? 'total_revenue = ?,' : ''}
+             ${user_id != null ? 'user_id = ?,' : ''}
              updated_at = datetime('now')
          WHERE report_date = ?`,
         ...([orders_count != null ? orders_count : []] as any),
         ...([total_revenue != null ? total_revenue : []] as any),
+        ...([user_id != null ? user_id : []] as any),
         req.params.date
       )
-      const updated = await db.get<DailyReport>(
-        'SELECT id, report_date, orders_count, total_revenue, created_at, updated_at FROM daily_reports WHERE report_date = ?',
+      const updated = await db.get<DailyReport & { user_name: string | null }>(
+        `SELECT dr.id, dr.report_date, dr.orders_count, dr.total_revenue, dr.created_at, dr.updated_at, dr.user_id,
+                u.name as user_name
+           FROM daily_reports dr
+           LEFT JOIN users u ON u.id = dr.user_id
+          WHERE dr.report_date = ?`,
         req.params.date
       )
       res.json(updated)
+    })
+  )
+
+  // POST /api/daily — создать отчёт на дату с пользователем
+  app.post(
+    '/api/daily',
+    asyncHandler(async (req, res) => {
+      const { report_date, user_id, orders_count = 0, total_revenue = 0 } = req.body as {
+        report_date: string; user_id?: number; orders_count?: number; total_revenue?: number
+      }
+      if (!report_date) { res.status(400).json({ message: 'Нужна дата YYYY-MM-DD' }); return }
+      try {
+        await db.run(
+          'INSERT INTO daily_reports (report_date, orders_count, total_revenue, user_id) VALUES (?, ?, ?, ?)',
+          report_date,
+          orders_count,
+          total_revenue,
+          user_id ?? null
+        )
+      } catch (e: any) {
+        if (String(e?.message || '').includes('UNIQUE')) { res.status(409).json({ message: 'Отчёт уже существует' }); return }
+        throw e
+      }
+      const row = await db.get<DailyReport & { user_name: string | null }>(
+        `SELECT dr.id, dr.report_date, dr.orders_count, dr.total_revenue, dr.created_at, dr.updated_at, dr.user_id,
+                u.name as user_name
+           FROM daily_reports dr
+           LEFT JOIN users u ON u.id = dr.user_id
+          WHERE dr.report_date = ?`,
+        report_date
+      )
+      res.status(201).json(row)
+    })
+  )
+
+  // GET /api/users — список пользователей
+  app.get(
+    '/api/users',
+    asyncHandler(async (_req, res) => {
+      const users = await db.all<{ id: number; name: string }>('SELECT id, name FROM users ORDER BY name')
+      res.json(users)
     })
   )
 

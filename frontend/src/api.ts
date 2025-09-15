@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Order, Item, PresetCategory, MaterialRow, Material, DailyReport } from './types';
+import { Order, Item, PresetCategory, MaterialRow, Material, DailyReport, UserRef } from './types';
 const api = axios.create({ baseURL: '/api' });
 
 export const getOrders = () => api.get<Order[]>('/orders');
@@ -38,3 +38,6 @@ export const updateDailyReport = (date: string, data: {
   api.patch<DailyReport>(`/daily/${date}`, data);
 
 export const getPresets = () => api.get<PresetCategory[]>('/presets');
+export const getUsers = () => api.get<UserRef[]>('/users');
+export const createDailyReport = (data: { report_date: string; user_id?: number; orders_count?: number; total_revenue?: number }) =>
+  api.post<DailyReport>('/daily', data);

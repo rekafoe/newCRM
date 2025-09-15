@@ -54,4 +54,8 @@ export interface DailyReport {
   total_revenue: number;
   created_at: string;
   updated_at?: string;
+  user_id?: number;
+  user_name?: string | null;
 }
+
+export interface UserRef { id: number; name: string }
