@@ -5,6 +5,7 @@ import {
   getOrders,
   createOrder,
   deleteOrder,
+  deleteOrderItem,
 } from "./api";
 import { Link } from 'react-router-dom';
 import AddItemModal from "./components/AddItemModal";
@@ -64,19 +65,15 @@ export default function App() {
         </button>
         {selectedOrder && (
           <button
-            onClick={() => deleteOrder(selectedOrder.id).then(loadOrders)}
-            title="Удалить заказ"
-            style={{
-              marginTop: 8,
-              background: 'none',
-              border: '1px solid #c00',
-              cursor: 'pointer',
-              color: '#c00',
-              borderRadius: 4,
-              padding: '8px'
+            className="btn-danger"
+            style={{ marginTop: 8 }}
+            onClick={async () => {
+              await deleteOrder(selectedOrder.id);
+              setSelectedId(null);
+              loadOrders();
             }}
           >
-            Удалить выбранный заказ
+            Удалить заказ
           </button>
         )}
         <button
@@ -117,9 +114,20 @@ export default function App() {
               )}
 
               {selectedOrder.items.map((it) => (
-                <div className="item" key={it.id}>
-                  <strong>{it.type}</strong> — {it.params.description} —{" "}
-                  {it.price.toLocaleString()} BYN
+                <div className="item" key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <strong>{it.type}</strong> — {it.params.description} —{" "}
+                    {it.price.toLocaleString()} BYN
+                  </div>
+                  <button
+                    className="btn-danger"
+                    onClick={async () => {
+                      await deleteOrderItem(selectedOrder.id, it.id);
+                      loadOrders();
+                    }}
+                  >
+                    Удалить
+                  </button>
                 </div>
               ))}
             </div>

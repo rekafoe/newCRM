@@ -55,6 +55,19 @@ html, body, #root {
   background: var(--primary-hover);
 }
 
+/* danger button */
+.btn-danger {
+  padding: 8px 10px;
+  background: #fff;
+  color: #c00;
+  border: 1px solid #c00;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-danger:hover {
+  background: #ffe8e8;
+}
+
 /* сам список заказов */
 .order-list {
   list-style: none;
