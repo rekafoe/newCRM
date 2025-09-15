@@ -1,7 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 // frontend/src/pages/DailyReportPage.tsx
 import { useEffect, useState } from 'react';
-import { getDailyReports, getDailyReportByDate, updateDailyReport, createDailyReport } from '../api';
+import { getDailyReports, getDailyReportByDate, updateDailyReport, createDailyReport, getUsers } from '../api';
 import EditModal from '../components/EditReportModal';
 export const DailyReportPage = () => {
     const [history, setHistory] = useState([]);
@@ -9,6 +9,13 @@ export const DailyReportPage = () => {
     const [report, setReport] = useState(null);
     const [isModalOpen, setModalOpen] = useState(false);
     const [creating, setCreating] = useState(false);
+    const [filterUserId, setFilterUserId] = useState('');
+    const [fromDate, setFromDate] = useState('');
+    const [toDate, setToDate] = useState('');
+    const [users, setUsers] = useState([]);
+    useEffect(() => {
+        getUsers().then(r => setUsers(r.data));
+    }, []);
     useEffect(() => {
         getDailyReports().then(res => {
             setHistory(res.data);
@@ -36,7 +43,20 @@ export const DailyReportPage = () => {
                             finally {
                                 setCreating(false);
                             }
-                        }, disabled: creating, children: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043E\u0442\u0447\u0451\u0442 \u0437\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F" }), _jsx("div", { style: { maxHeight: 300, overflowY: 'auto' }, children: history.map(r => (_jsxs("div", { onClick: () => setSelectedDate(r.report_date), style: {
+                        }, disabled: creating, children: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043E\u0442\u0447\u0451\u0442 \u0437\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F" }), _jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 8, margin: '8px 0' }, children: [_jsxs("select", { value: filterUserId, onChange: e => setFilterUserId(e.target.value ? +e.target.value : ''), children: [_jsx("option", { value: "", children: "\u0412\u0441\u0435 \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u0438" }), users.map(u => (_jsx("option", { value: u.id, children: u.name }, u.id)))] }), _jsx("input", { type: "date", value: fromDate, onChange: e => setFromDate(e.target.value) }), _jsx("input", { type: "date", value: toDate, onChange: e => setToDate(e.target.value) }), _jsx("button", { onClick: async () => {
+                                    const params = new URLSearchParams();
+                                    if (filterUserId)
+                                        params.set('user_id', String(filterUserId));
+                                    if (fromDate)
+                                        params.set('from', fromDate);
+                                    if (toDate)
+                                        params.set('to', toDate);
+                                    const res = await fetch('/api/daily-reports' + (params.toString() ? `?${params}` : ''));
+                                    const data = await res.json();
+                                    setHistory(data);
+                                    if (data.length)
+                                        setSelectedDate(data[0].report_date);
+                                }, children: "\u0424\u0438\u043B\u044C\u0442\u0440" })] }), _jsx("div", { style: { maxHeight: 300, overflowY: 'auto' }, children: history.map(r => (_jsxs("div", { onClick: () => setSelectedDate(r.report_date), style: {
                                 padding: 8,
                                 cursor: 'pointer',
                                 background: r.report_date === selectedDate ? '#eef' : undefined

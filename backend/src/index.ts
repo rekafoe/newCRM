@@ -11,6 +11,25 @@ async function main() {
 
   app.use(cors())
   app.use(express.json())
+  // Simple token auth middleware (API token from users.api_token)
+  app.use(async (req: Request, res: Response, next: NextFunction) => {
+    const openPaths = [
+      // public widget needs these
+      /^\/api\/presets/,
+      /^\/api\/orders$/,
+      /^\/api\/orders\/[0-9]+\/items$/,
+      /^\/api\/orders\/[0-9]+\/prepay$/,
+      /^\/api\/webhooks\/bepaid$/
+    ]
+    if (openPaths.some(r => r.test(req.path))) return next()
+    const auth = req.headers['authorization'] || ''
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : undefined
+    if (!token) { res.status(401).json({ message: 'Unauthorized' }); return }
+    const u = await db.get<{ id: number; role: string }>('SELECT id, role FROM users WHERE api_token = ?', token)
+    if (!u) { res.status(401).json({ message: 'Unauthorized' }); return }
+    ;(req as any).user = u
+    next()
+  })
   // Routes are defined inline against sqlite database
   // Обёртка для async-роутов
   const asyncHandler =
@@ -213,13 +232,22 @@ async function main() {
   // ===== Daily Reports =====
   app.get(
     '/api/daily-reports',
-    asyncHandler(async (_req, res) => {
+    asyncHandler(async (req, res) => {
+      const { user_id, from, to } = req.query as any
+      const params: any[] = []
+      const where: string[] = []
+      if (user_id) { where.push('dr.user_id = ?'); params.push(Number(user_id)) }
+      if (from) { where.push('dr.report_date >= ?'); params.push(String(from)) }
+      if (to) { where.push('dr.report_date <= ?'); params.push(String(to)) }
+      const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : ''
       const rows = (await db.all<DailyReport & { user_name: string | null }>(
         `SELECT dr.id, dr.report_date, dr.orders_count, dr.total_revenue, dr.created_at, dr.updated_at, dr.user_id,
                 u.name as user_name
            FROM daily_reports dr
            LEFT JOIN users u ON u.id = dr.user_id
-           ORDER BY dr.report_date DESC`
+           ${whereSql}
+           ORDER BY dr.report_date DESC`,
+        ...params
       )) as unknown as Array<DailyReport & { user_name: string | null }>
       res.json(rows)
     })

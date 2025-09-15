@@ -13,6 +13,33 @@ async function main() {
     const app = (0, express_1.default)();
     app.use((0, cors_1.default)());
     app.use(express_1.default.json());
+    // Simple token auth middleware (API token from users.api_token)
+    app.use(async (req, res, next) => {
+        const openPaths = [
+            // public widget needs these
+            /^\/api\/presets/,
+            /^\/api\/orders$/,
+            /^\/api\/orders\/[0-9]+\/items$/,
+            /^\/api\/orders\/[0-9]+\/prepay$/,
+            /^\/api\/webhooks\/bepaid$/
+        ];
+        if (openPaths.some(r => r.test(req.path)))
+            return next();
+        const auth = req.headers['authorization'] || '';
+        const token = auth.startsWith('Bearer ') ? auth.slice(7) : undefined;
+        if (!token) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+        const u = await db.get('SELECT id, role FROM users WHERE api_token = ?', token);
+        if (!u) {
+            res.status(401).json({ message: 'Unauthorized' });
+            return;
+        }
+        ;
+        req.user = u;
+        next();
+    });
     // Routes are defined inline against sqlite database
     // Обёртка для async-роутов
     const asyncHandler = (fn) => (req, res, next) => fn(req, res, next).catch(next);
@@ -122,12 +149,29 @@ async function main() {
         }
     }));
     // ===== Daily Reports =====
-    app.get('/api/daily-reports', asyncHandler(async (_req, res) => {
+    app.get('/api/daily-reports', asyncHandler(async (req, res) => {
+        const { user_id, from, to } = req.query;
+        const params = [];
+        const where = [];
+        if (user_id) {
+            where.push('dr.user_id = ?');
+            params.push(Number(user_id));
+        }
+        if (from) {
+            where.push('dr.report_date >= ?');
+            params.push(String(from));
+        }
+        if (to) {
+            where.push('dr.report_date <= ?');
+            params.push(String(to));
+        }
+        const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
         const rows = (await db.all(`SELECT dr.id, dr.report_date, dr.orders_count, dr.total_revenue, dr.created_at, dr.updated_at, dr.user_id,
                 u.name as user_name
            FROM daily_reports dr
            LEFT JOIN users u ON u.id = dr.user_id
-           ORDER BY dr.report_date DESC`));
+           ${whereSql}
+           ORDER BY dr.report_date DESC`, ...params));
         res.json(rows);
     }));
     app.get('/api/daily/:date', asyncHandler(async (req, res) => {

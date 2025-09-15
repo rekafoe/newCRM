@@ -10,6 +10,14 @@ export const DailyReportPage: React.FC = () => {
   const [report, setReport] = useState<DailyReport | null>(null);
   const [isModalOpen, setModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [filterUserId, setFilterUserId] = useState<number | ''>('');
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
+
+  useEffect(() => {
+    getUsers().then(r => setUsers(r.data));
+  }, []);
 
   useEffect(() => {
     getDailyReports().then(res => {
@@ -46,6 +54,26 @@ export const DailyReportPage: React.FC = () => {
           }}
           disabled={creating}
         >Создать отчёт за сегодня</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '8px 0' }}>
+          <select value={filterUserId} onChange={e => setFilterUserId(e.target.value ? +e.target.value : '')}>
+            <option value="">Все пользователи</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} />
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} />
+          <button onClick={async () => {
+            const params = new URLSearchParams();
+            if (filterUserId) params.set('user_id', String(filterUserId));
+            if (fromDate) params.set('from', fromDate);
+            if (toDate) params.set('to', toDate);
+            const res = await fetch('/api/daily-reports' + (params.toString() ? `?${params}` : ''));
+            const data = await res.json();
+            setHistory(data);
+            if (data.length) setSelectedDate(data[0].report_date);
+          }}>Фильтр</button>
+        </div>
         <div style={{ maxHeight: 300, overflowY: 'auto' }}>
           {history.map(r => (
             <div
