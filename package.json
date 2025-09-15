@@ -1,0 +1,12 @@
+{
+  "devDependencies": {
+    "node-pg-migrate": "^8.0.3"
+  },
+
+  "scripts": {
+    "migrate": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down"
+  }
+
+
+}
