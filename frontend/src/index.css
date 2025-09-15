@@ -6,6 +6,8 @@
   --border: #e0e0e0;
   --text: #333;
   --text-light: #666;
+  --danger: #c00;
+  --danger-bg: #ffe8e8;
 }
 
 * {
@@ -59,13 +61,23 @@ html, body, #root {
 .btn-danger {
   padding: 8px 10px;
   background: #fff;
-  color: #c00;
-  border: 1px solid #c00;
+  color: var(--danger);
+  border: 1px solid var(--danger);
   border-radius: 4px;
   cursor: pointer;
 }
 .btn-danger:hover {
-  background: #ffe8e8;
+  background: var(--danger-bg);
+}
+
+/* minimal inputs */
+input, select, button {
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+button {
+  cursor: pointer;
 }
 
 /* сам список заказов */

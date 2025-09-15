@@ -11,6 +11,13 @@ export interface Order {
   number: string;
   status: number;
   createdAt: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  prepaymentAmount?: number;
+  prepaymentStatus?: string;
+  paymentUrl?: string;
+  paymentId?: string;
   items: Item[];
 }
 

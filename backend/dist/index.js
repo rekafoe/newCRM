@@ -32,13 +32,14 @@ async function main() {
         res.json(orders);
     }));
     // POST /api/orders — создать новый заказ
-    app.post('/api/orders', asyncHandler(async (_req, res) => {
+    app.post('/api/orders', asyncHandler(async (req, res) => {
         const createdAt = new Date().toISOString();
-        const insertRes = await db.run('INSERT INTO orders (status, createdAt) VALUES (?, ?)', 1, createdAt);
+        const { customerName, customerPhone, customerEmail, prepaymentAmount } = (req.body || {});
+        const insertRes = await db.run('INSERT INTO orders (status, createdAt, customerName, customerPhone, customerEmail, prepaymentAmount) VALUES (?, ?, ?, ?, ?, ?)', 1, createdAt, customerName || null, customerPhone || null, customerEmail || null, Number(prepaymentAmount || 0));
         const id = insertRes.lastID;
         const number = `ORD-${String(id).padStart(4, '0')}`;
         await db.run('UPDATE orders SET number = ? WHERE id = ?', number, id);
-        const raw = await db.get('SELECT id, number, status, createdAt FROM orders WHERE id = ?', id);
+        const raw = await db.get('SELECT * FROM orders WHERE id = ?', id);
         const order = { ...raw, items: [] };
         res.status(201).json(order);
     }));
@@ -47,9 +48,39 @@ async function main() {
         const id = Number(req.params.id);
         const { status } = req.body;
         await db.run('UPDATE orders SET status = ? WHERE id = ?', status, id);
-        const raw = await db.get('SELECT id, number, status, createdAt FROM orders WHERE id = ?', id);
+        const raw = await db.get('SELECT * FROM orders WHERE id = ?', id);
         const updated = { ...raw, items: [] };
         res.json(updated);
+    }));
+    // POST /api/orders/:id/prepay — создать ссылку на предоплату (через BePaid-стаб)
+    app.post('/api/orders/:id/prepay', asyncHandler(async (req, res) => {
+        const id = Number(req.params.id);
+        const order = await db.get('SELECT * FROM orders WHERE id = ?', id);
+        if (!order) {
+            res.status(404).json({ message: 'Заказ не найден' });
+            return;
+        }
+        const amount = Number(req.body?.amount ?? order.prepaymentAmount ?? 0);
+        if (!amount || amount <= 0) {
+            res.status(400).json({ message: 'Сумма предоплаты не задана' });
+            return;
+        }
+        // BePaid integration stub: normally create payment via API and get redirect url
+        const paymentId = `BEP-${Date.now()}-${id}`;
+        const paymentUrl = `https://checkout.bepaid.by/redirect/${paymentId}`;
+        await db.run('UPDATE orders SET prepaymentAmount = ?, prepaymentStatus = ?, paymentUrl = ?, paymentId = ? WHERE id = ?', amount, 'pending', paymentUrl, paymentId, id);
+        const updated = await db.get('SELECT * FROM orders WHERE id = ?', id);
+        res.json(updated);
+    }));
+    // POST /api/webhooks/bepaid — обработчик вебхуков статуса оплаты
+    app.post('/api/webhooks/bepaid', asyncHandler(async (req, res) => {
+        const { payment_id, status, order_id } = req.body;
+        if (!payment_id) {
+            res.status(400).json({});
+            return;
+        }
+        await db.run('UPDATE orders SET prepaymentStatus = ? WHERE paymentId = ?', status, payment_id);
+        res.status(204).end();
     }));
     // POST /api/orders/:id/items — добавить позицию и списать материалы (атомарно)
     app.post('/api/orders/:id/items', asyncHandler(async (req, res) => {

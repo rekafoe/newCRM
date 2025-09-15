@@ -23,7 +23,14 @@ export async function initDB(): Promise<Database> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       number TEXT UNIQUE,
       status INTEGER NOT NULL,
-      createdAt TEXT NOT NULL
+      createdAt TEXT NOT NULL,
+      customerName TEXT,
+      customerPhone TEXT,
+      customerEmail TEXT,
+      prepaymentAmount REAL DEFAULT 0,
+      prepaymentStatus TEXT,
+      paymentUrl TEXT,
+      paymentId TEXT
     );
     CREATE TABLE IF NOT EXISTS items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +86,19 @@ export async function initDB(): Promise<Database> {
   `)
 
   console.log('✅ Database schema is ready')
+  // Best-effort ALTERs for existing DBs (ignore errors if column exists)
+  const alters = [
+    "ALTER TABLE orders ADD COLUMN customerName TEXT",
+    "ALTER TABLE orders ADD COLUMN customerPhone TEXT",
+    "ALTER TABLE orders ADD COLUMN customerEmail TEXT",
+    "ALTER TABLE orders ADD COLUMN prepaymentAmount REAL DEFAULT 0",
+    "ALTER TABLE orders ADD COLUMN prepaymentStatus TEXT",
+    "ALTER TABLE orders ADD COLUMN paymentUrl TEXT",
+    "ALTER TABLE orders ADD COLUMN paymentId TEXT"
+  ]
+  for (const sql of alters) {
+    try { await db.exec(sql) } catch {}
+  }
   // Seed presets if empty
   const countRow = await db.get<{ c: number }>(`SELECT COUNT(1) as c FROM preset_categories`)
   if (!countRow || Number((countRow as any).c) === 0) {

@@ -56,7 +56,7 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
       </div>
 
       {category && (
-        <div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <select onChange={e => {
             const prod = category.items.find(i => i.description === e.target.value)!;
             setProduct(prod);
@@ -69,6 +69,12 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
               </option>
             ))}
           </select>
+          {product && (
+            <button
+              className="btn-danger"
+              onClick={() => setProduct(null)}
+            >Очистить</button>
+          )}
         </div>
       )}
 
