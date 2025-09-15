@@ -1,13 +1,19 @@
 
+version: '3.8'
 services:
-  cockroach:
-    image: cockroachdb/cockroach:v23.2.2
-    command: start-single-node --insecure
+  backend:
+    build: ./backend
+    command: npm run start
     ports:
-      - '26257:26257'   # SQL и HTTP порт
-      - '8080:8080'     # Web UI
+      - '3001:3001'
     volumes:
-      - cockroach-data:/cockroach/cockroach-data
-
-volumes:
-  cockroach-data:
+      - ./backend:/usr/src/app
+    working_dir: /usr/src/app
+  frontend:
+    build: ./frontend
+    command: npm run preview -- --host 0.0.0.0 --port 5173
+    ports:
+      - '5173:5173'
+    volumes:
+      - ./frontend:/usr/src/app
+    working_dir: /usr/src/app

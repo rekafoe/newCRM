@@ -3,33 +3,63 @@
 import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import { initDB } from './db'
-import { Order, Item, Material, ProductMaterial } from './types'
-import reportRoutes from './routes/reportRoutes';
+import { Order, Item, Material, ProductMaterial, DailyReport } from './types'
 import 'dotenv/config';
-import orderRoutes from './routes/orderRoutes';
+import { createHash } from 'crypto'
 async function main() {
   const db = await initDB()
   const app = express()
 
   app.use(cors())
   app.use(express.json())
-  app.use('/api', reportRoutes);
-  app.use('/api', orderRoutes);
+  // Password auth
+  app.post('/api/auth/login', async (req, res) => {
+    const { email, password } = req.body as { email: string; password: string }
+    if (!email || !password) return res.status(400).json({ message: 'Email и пароль обязательны' })
+    const hp = createHash('sha256').update(password).digest('hex')
+    const u = await db.get<{ api_token: string; name: string; role: string }>(
+      'SELECT api_token, name, role FROM users WHERE email = ? AND password_hash = ?',
+      email,
+      hp
+    )
+    if (!u) return res.status(401).json({ message: 'Неверные данные' })
+    res.json({ token: u.api_token, name: u.name, role: u.role })
+  })
+  // Simple token auth middleware (API token from users.api_token)
+  app.use(async (req: Request, res: Response, next: NextFunction) => {
+    const openPaths = [
+      // public widget needs these
+      /^\/api\/presets/,
+      /^\/api\/orders$/,
+      /^\/api\/orders\/[0-9]+\/items$/,
+      /^\/api\/orders\/[0-9]+\/prepay$/,
+      /^\/api\/webhooks\/bepaid$/
+    ]
+    if (openPaths.some(r => r.test(req.path))) return next()
+    const auth = req.headers['authorization'] || ''
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : undefined
+    if (!token) { res.status(401).json({ message: 'Unauthorized' }); return }
+    const u = await db.get<{ id: number; role: string }>('SELECT id, role FROM users WHERE api_token = ?', token)
+    if (!u) { res.status(401).json({ message: 'Unauthorized' }); return }
+    ;(req as any).user = u
+    next()
+  })
+  // Routes are defined inline against sqlite database
   // Обёртка для async-роутов
   const asyncHandler =
     (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) =>
-    (req, res, next) =>
+    (req: Request, res: Response, next: NextFunction) =>
       fn(req, res, next).catch(next)
 
   // GET /api/orders — список заказов с их позициями
   app.get(
     '/api/orders',
     asyncHandler(async (_req, res) => {
-      const orders = await db.all<Order>(
+      const orders = (await db.all<Order>(
         'SELECT id, number, status, createdAt FROM orders ORDER BY id DESC'
-      )
+      )) as unknown as Order[]
       for (const o of orders) {
-        const itemsRaw = await db.all<{
+        const itemsRaw = (await db.all<{
           id: number
           orderId: number
           type: string
@@ -38,7 +68,13 @@ async function main() {
         }>(
           'SELECT id, orderId, type, params, price FROM items WHERE orderId = ?',
           o.id
-        )
+        )) as unknown as Array<{
+          id: number
+          orderId: number
+          type: string
+          params: string
+          price: number
+        }>
         o.items = itemsRaw.map(ir => ({
           id: ir.id,
           orderId: ir.orderId,
@@ -54,19 +90,24 @@ async function main() {
   // POST /api/orders — создать новый заказ
   app.post(
     '/api/orders',
-    asyncHandler(async (_req, res) => {
+    asyncHandler(async (req, res) => {
       const createdAt = new Date().toISOString()
+      const { customerName, customerPhone, customerEmail, prepaymentAmount } = (req.body || {}) as Partial<Order>
       const insertRes = await db.run(
-        'INSERT INTO orders (status, createdAt) VALUES (?, ?)',
+        'INSERT INTO orders (status, createdAt, customerName, customerPhone, customerEmail, prepaymentAmount) VALUES (?, ?, ?, ?, ?, ?)',
         1,
-        createdAt
+        createdAt,
+        customerName || null,
+        customerPhone || null,
+        customerEmail || null,
+        Number(prepaymentAmount || 0)
       )
       const id = insertRes.lastID!
       const number = `ORD-${String(id).padStart(4, '0')}`
       await db.run('UPDATE orders SET number = ? WHERE id = ?', number, id)
 
       const raw = await db.get<Order>(
-        'SELECT id, number, status, createdAt FROM orders WHERE id = ?',
+        'SELECT * FROM orders WHERE id = ?',
         id
       )
       const order: Order = { ...(raw as Order), items: [] }
@@ -83,11 +124,40 @@ async function main() {
       await db.run('UPDATE orders SET status = ? WHERE id = ?', status, id)
 
       const raw = await db.get<Order>(
-        'SELECT id, number, status, createdAt FROM orders WHERE id = ?',
+        'SELECT * FROM orders WHERE id = ?',
         id
       )
       const updated: Order = { ...(raw as Order), items: [] }
       res.json(updated)
+    })
+  )
+
+  // POST /api/orders/:id/prepay — создать ссылку на предоплату (через BePaid-стаб)
+  app.post(
+    '/api/orders/:id/prepay',
+    asyncHandler(async (req, res) => {
+      const id = Number(req.params.id)
+      const order = await db.get<Order>('SELECT * FROM orders WHERE id = ?', id)
+      if (!order) { res.status(404).json({ message: 'Заказ не найден' }); return }
+      const amount = Number((req.body as any)?.amount ?? order.prepaymentAmount ?? 0)
+      if (!amount || amount <= 0) { res.status(400).json({ message: 'Сумма предоплаты не задана' }); return }
+      // BePaid integration stub: normally create payment via API and get redirect url
+      const paymentId = `BEP-${Date.now()}-${id}`
+      const paymentUrl = `https://checkout.bepaid.by/redirect/${paymentId}`
+      await db.run('UPDATE orders SET prepaymentAmount = ?, prepaymentStatus = ?, paymentUrl = ?, paymentId = ? WHERE id = ?', amount, 'pending', paymentUrl, paymentId, id)
+      const updated = await db.get<Order>('SELECT * FROM orders WHERE id = ?', id)
+      res.json(updated)
+    })
+  )
+
+  // POST /api/webhooks/bepaid — обработчик вебхуков статуса оплаты
+  app.post(
+    '/api/webhooks/bepaid',
+    asyncHandler(async (req, res) => {
+      const { payment_id, status, order_id } = req.body as { payment_id: string; status: string; order_id: number }
+      if (!payment_id) { res.status(400).json({}); return }
+      await db.run('UPDATE orders SET prepaymentStatus = ? WHERE paymentId = ?', status, payment_id)
+      res.status(204).end()
     })
   )
 
@@ -103,7 +173,7 @@ async function main() {
       }
 
       // Узнаём материалы и остатки
-      const needed = await db.all<{
+      const needed = (await db.all<{
         materialId: number
         qtyPerItem: number
         quantity: number
@@ -114,7 +184,11 @@ async function main() {
            WHERE pm.presetCategory = ? AND pm.presetDescription = ?`,
         type,
         params.description
-      )
+      )) as unknown as Array<{
+        materialId: number
+        qtyPerItem: number
+        quantity: number
+      }>
 
       // Транзакция: проверка остатков, списание и вставка позиции
       await db.run('BEGIN')
@@ -166,6 +240,136 @@ async function main() {
         await db.run('ROLLBACK')
         throw e
       }
+    })
+  )
+
+  // ===== Daily Reports =====
+  app.get(
+    '/api/daily-reports',
+    asyncHandler(async (req, res) => {
+      const { user_id, from, to } = req.query as any
+      const params: any[] = []
+      const where: string[] = []
+      if (user_id) { where.push('dr.user_id = ?'); params.push(Number(user_id)) }
+      if (from) { where.push('dr.report_date >= ?'); params.push(String(from)) }
+      if (to) { where.push('dr.report_date <= ?'); params.push(String(to)) }
+      const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : ''
+      const rows = (await db.all<DailyReport & { user_name: string | null }>(
+        `SELECT dr.id, dr.report_date, dr.orders_count, dr.total_revenue, dr.created_at, dr.updated_at, dr.user_id,
+                u.name as user_name
+           FROM daily_reports dr
+           LEFT JOIN users u ON u.id = dr.user_id
+           ${whereSql}
+           ORDER BY dr.report_date DESC`,
+        ...params
+      )) as unknown as Array<DailyReport & { user_name: string | null }>
+      res.json(rows)
+    })
+  )
+
+  app.get(
+    '/api/daily/:date',
+    asyncHandler(async (req, res) => {
+      const row = await db.get<DailyReport & { user_name: string | null }>(
+        `SELECT dr.id, dr.report_date, dr.orders_count, dr.total_revenue, dr.created_at, dr.updated_at, dr.user_id,
+                u.name as user_name
+           FROM daily_reports dr
+           LEFT JOIN users u ON u.id = dr.user_id
+          WHERE dr.report_date = ?`,
+        req.params.date
+      )
+      if (!row) {
+        res.status(404).json({ message: 'Отчёт не найден' })
+        return
+      }
+      res.json(row)
+    })
+  )
+
+  app.patch(
+    '/api/daily/:date',
+    asyncHandler(async (req, res) => {
+      const { orders_count, total_revenue, user_id } = req.body as {
+        orders_count?: number
+        total_revenue?: number
+        user_id?: number
+      }
+      if (orders_count == null && total_revenue == null && user_id == null) {
+        res.status(400).json({ message: 'Нет данных для обновления' })
+        return
+      }
+      const existing = await db.get<DailyReport>(
+        'SELECT id FROM daily_reports WHERE report_date = ?',
+        req.params.date
+      )
+      if (!existing) {
+        res.status(404).json({ message: 'Отчёт не найден' })
+        return
+      }
+
+      await db.run(
+        `UPDATE daily_reports
+           SET 
+             ${orders_count != null ? 'orders_count = ?,' : ''}
+             ${total_revenue != null ? 'total_revenue = ?,' : ''}
+             ${user_id != null ? 'user_id = ?,' : ''}
+             updated_at = datetime('now')
+         WHERE report_date = ?`,
+        ...([orders_count != null ? orders_count : []] as any),
+        ...([total_revenue != null ? total_revenue : []] as any),
+        ...([user_id != null ? user_id : []] as any),
+        req.params.date
+      )
+      const updated = await db.get<DailyReport & { user_name: string | null }>(
+        `SELECT dr.id, dr.report_date, dr.orders_count, dr.total_revenue, dr.created_at, dr.updated_at, dr.user_id,
+                u.name as user_name
+           FROM daily_reports dr
+           LEFT JOIN users u ON u.id = dr.user_id
+          WHERE dr.report_date = ?`,
+        req.params.date
+      )
+      res.json(updated)
+    })
+  )
+
+  // POST /api/daily — создать отчёт на дату с пользователем
+  app.post(
+    '/api/daily',
+    asyncHandler(async (req, res) => {
+      const { report_date, user_id, orders_count = 0, total_revenue = 0 } = req.body as {
+        report_date: string; user_id?: number; orders_count?: number; total_revenue?: number
+      }
+      if (!report_date) { res.status(400).json({ message: 'Нужна дата YYYY-MM-DD' }); return }
+      try {
+        await db.run(
+          'INSERT INTO daily_reports (report_date, orders_count, total_revenue, user_id) VALUES (?, ?, ?, ?)',
+          report_date,
+          orders_count,
+          total_revenue,
+          user_id ?? null
+        )
+      } catch (e: any) {
+        if (String(e?.message || '').includes('UNIQUE')) { res.status(409).json({ message: 'Отчёт уже существует' }); return }
+        throw e
+      }
+      const row = await db.get<DailyReport & { user_name: string | null }>(
+        `SELECT dr.id, dr.report_date, dr.orders_count, dr.total_revenue, dr.created_at, dr.updated_at, dr.user_id,
+                u.name as user_name
+           FROM daily_reports dr
+           LEFT JOIN users u ON u.id = dr.user_id
+          WHERE dr.report_date = ?`,
+        report_date
+      )
+      res.status(201).json(row)
+    })
+  )
+
+  // GET /api/users — список пользователей
+  app.get(
+    '/api/users',
+    asyncHandler(async (_req, res) => {
+      const users = await db.all<{ id: number; name: string }>('SELECT id, name FROM users ORDER BY name')
+      res.json(users)
     })
   )
 
@@ -266,6 +470,33 @@ async function main() {
         req.params.description
       )
       res.json(rows)
+    })
+  )
+
+  // GET /api/presets — список категорий с их товарами и допами
+  app.get(
+    '/api/presets',
+    asyncHandler(async (_req, res) => {
+      const categories = (await db.all<{ id: number; category: string; color: string }>(
+        'SELECT id, category, color FROM preset_categories ORDER BY category'
+      )) as unknown as Array<{ id: number; category: string; color: string }>
+      const items = (await db.all<{ id: number; category_id: number; description: string; price: number }>(
+        'SELECT id, category_id, description, price FROM preset_items'
+      )) as unknown as Array<{ id: number; category_id: number; description: string; price: number }>
+      const extras = (await db.all<{ id: number; category_id: number; name: string; price: number; type: string; unit: string | null }>(
+        'SELECT id, category_id, name, price, type, unit FROM preset_extras'
+      )) as unknown as Array<{ id: number; category_id: number; name: string; price: number; type: string; unit: string | null }>
+      const result = categories.map((c) => ({
+        category: c.category,
+        color: c.color,
+        items: items
+          .filter((i) => i.category_id === c.id)
+          .map((i) => ({ description: i.description, price: i.price })),
+        extras: extras
+          .filter((e) => e.category_id === c.id)
+          .map((e) => ({ name: e.name, price: e.price, type: e.type as any, unit: e.unit || undefined }))
+      }))
+      res.json(result)
     })
   )
 

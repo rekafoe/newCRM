@@ -1,6 +1,25 @@
 import axios from 'axios';
-import { Order, Item, PresetCategory, MaterialRow, Material, DailyReport } from './types';
+import { Order, Item, PresetCategory, MaterialRow, Material, DailyReport, UserRef } from './types';
 const api = axios.create({ baseURL: '/api' });
+
+// Attach auth token from localStorage for protected endpoints
+api.interceptors.request.use((config) => {
+  try {
+    const token = localStorage.getItem('crmToken');
+    if (token) {
+      config.headers = {
+        ...(config.headers || {}),
+        Authorization: `Bearer ${token}`
+      } as any;
+    }
+  } catch {}
+  return config;
+});
+
+export function setAuthToken(token?: string) {
+  if (token) localStorage.setItem('crmToken', token);
+  else localStorage.removeItem('crmToken');
+}
 
 export const getOrders = () => api.get<Order[]>('/orders');
 export const createOrder = () => api.post<Order>('/orders');
@@ -36,3 +55,8 @@ export const updateDailyReport = (date: string, data: {
   total_revenue?: number;
 }) =>
   api.patch<DailyReport>(`/daily/${date}`, data);
+
+export const getPresets = () => api.get<PresetCategory[]>('/presets');
+export const getUsers = () => api.get<UserRef[]>('/users');
+export const createDailyReport = (data: { report_date: string; user_id?: number; orders_count?: number; total_revenue?: number }) =>
+  api.post<DailyReport>('/daily', data);

@@ -2,9 +2,10 @@
   "name": "crm-frontend",
   "version": "1.0.0",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5173",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview --port 5173",
+    "build:widget": "vite --config vite.widget.config.ts build"
   },
   "dependencies": {
     "axios": "^1.12.2",

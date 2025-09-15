@@ -1,12 +1,14 @@
 {
-  "devDependencies": {
-    "node-pg-migrate": "^8.0.3"
-  },
-
+  "private": true,
+  "name": "crm-monorepo",
+  "version": "1.0.0",
   "scripts": {
-    "migrate": "node-pg-migrate up",
-    "migrate:down": "node-pg-migrate down"
+    "dev:backend": "npm --prefix backend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "start:backend": "npm --prefix backend run start",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "preview:frontend": "npm --prefix frontend run preview",
+    "build": "npm run build:backend && npm run build:frontend"
   }
-
-
 }

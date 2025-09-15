@@ -4,8 +4,6 @@ import { Order } from "./types";
 import {
   getOrders,
   createOrder,
-  addOrderItem,
-  updateOrderStatus,
   deleteOrder,
   deleteOrderItem,
 } from "./api";
@@ -16,6 +14,7 @@ import ManagePresetsModal from "./components/ManagePresetsModal";
 
 import { ProgressBar, OrderStatus } from "./components/order/ProgressBar";
 import { OrderTotal } from "./components/order/OrderTotal";
+import { setAuthToken } from './api';
 
 
 export default function App() {
@@ -65,20 +64,23 @@ export default function App() {
         <button className="add-order-btn" onClick={handleCreateOrder}>
           + Добавить заказ
         </button>
-        <button
-          onClick={() => onDeleteOrder(o.id)}
-          title="Удалить заказ"
-          style={{
-            marginLeft: 8,
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: '#c00',
-            fontSize: '1.2rem'
-  }}
->
-  Удалить заказ
-</button>
+        {selectedOrder && (
+          <button
+            className="btn-danger"
+            style={{ marginTop: 8 }}
+            onClick={async () => {
+              try {
+                await deleteOrder(selectedOrder.id);
+                setSelectedId(null);
+                loadOrders();
+              } catch (e: any) {
+                alert('Не удалось удалить заказ. Возможно нужна авторизация.');
+              }
+            }}
+          >
+            Удалить заказ
+          </button>
+        )}
         <button
           className="add-order-btn"
           style={{ marginTop: 8 }}
@@ -96,12 +98,17 @@ export default function App() {
               <div className="detail-actions">
                 <button onClick={() => setShowPresets(true)}>Пресеты</button>
                 <button onClick={() => setShowAddItem(true)}>+ Позиция</button>
+                <button onClick={() => { setAuthToken(undefined); location.href = '/login'; }}>Выйти</button>
               </div>
             </div>
 
             {/* ====== ВСТАВЛЯЕМ ПРОГРЕСС-БАР ====== */}
             <ProgressBar
-              current={selectedOrder.status as OrderStatus}
+              current={
+                (['Новый','В производстве','Готов к отправке','Отправлен','Завершён'] as OrderStatus[])[
+                  Math.min(Math.max(Number(selectedOrder.status) - 1, 0), 4)
+                ]
+              }
               height="12px"
               fillColor="#1976d2"
               bgColor="#e0e0e0"
@@ -113,9 +120,24 @@ export default function App() {
               )}
 
               {selectedOrder.items.map((it) => (
-                <div className="item" key={it.id}>
-                  <strong>{it.type}</strong> — {it.params.description} —{" "}
-                  {it.price.toLocaleString()} BYN
+                <div className="item" key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <strong>{it.type}</strong> — {it.params.description} —{" "}
+                    {it.price.toLocaleString()} BYN
+                  </div>
+                  <button
+                    className="btn-danger"
+                    onClick={async () => {
+                      try {
+                        await deleteOrderItem(selectedOrder.id, it.id);
+                        loadOrders();
+                      } catch (e: any) {
+                        alert('Не удалось удалить позицию. Возможно нужна авторизация.');
+                      }
+                    }}
+                  >
+                    Удалить
+                  </button>
                 </div>
               ))}
             </div>
@@ -126,10 +148,8 @@ export default function App() {
                 id: it.id,
                 type: it.type,
                 price: it.price,
-                quantity: it.quantity,
-                serviceCost: it.serviceCost,
               }))}
-              discount={selectedOrder.discount}
+              discount={0}
               taxRate={0.2}
             />
           </>

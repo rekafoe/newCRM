@@ -1,10 +1,6 @@
 // frontend/src/pages/DailyReportPage.tsx
 import React, { useEffect, useState } from 'react';
-import {
-  getDailyReports,
-  getDailyReportByDate,
-  updateDailyReport
-} from '../api';
+import { getDailyReports, getDailyReportByDate, updateDailyReport, createDailyReport, getUsers } from '../api';
 import { DailyReport } from '../types';
 import EditModal from '../components/EditReportModal';
 
@@ -13,6 +9,15 @@ export const DailyReportPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [report, setReport] = useState<DailyReport | null>(null);
   const [isModalOpen, setModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [filterUserId, setFilterUserId] = useState<number | ''>('');
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
+
+  useEffect(() => {
+    getUsers().then(r => setUsers(r.data));
+  }, []);
 
   useEffect(() => {
     getDailyReports().then(res => {
@@ -35,6 +40,40 @@ export const DailyReportPage: React.FC = () => {
     <div style={{ display: 'flex', padding: 16 }}>
       <aside style={{ width: 200, marginRight: 16 }}>
         <h2>Архив отчётов</h2>
+        <button
+          style={{ marginBottom: 8 }}
+          onClick={async () => {
+            const today = new Date().toISOString().slice(0,10);
+            setCreating(true);
+            try {
+              await createDailyReport({ report_date: today });
+              const res = await getDailyReports();
+              setHistory(res.data);
+              setSelectedDate(today);
+            } finally { setCreating(false); }
+          }}
+          disabled={creating}
+        >Создать отчёт за сегодня</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '8px 0' }}>
+          <select value={filterUserId} onChange={e => setFilterUserId(e.target.value ? +e.target.value : '')}>
+            <option value="">Все пользователи</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} />
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} />
+          <button onClick={async () => {
+            const params = new URLSearchParams();
+            if (filterUserId) params.set('user_id', String(filterUserId));
+            if (fromDate) params.set('from', fromDate);
+            if (toDate) params.set('to', toDate);
+            const res = await fetch('/api/daily-reports' + (params.toString() ? `?${params}` : ''));
+            const data = await res.json();
+            setHistory(data);
+            if (data.length) setSelectedDate(data[0].report_date);
+          }}>Фильтр</button>
+        </div>
         <div style={{ maxHeight: 300, overflowY: 'auto' }}>
           {history.map(r => (
             <div
@@ -81,6 +120,9 @@ export const DailyReportPage: React.FC = () => {
               updates
             );
             setReport(res.data);
+            // обновим имя пользователя в списке
+            const refreshed = await getDailyReports();
+            setHistory(refreshed.data);
             setModalOpen(false);
           }}
         />
