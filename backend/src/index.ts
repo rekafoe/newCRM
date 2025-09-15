@@ -5,12 +5,26 @@ import cors from 'cors'
 import { initDB } from './db'
 import { Order, Item, Material, ProductMaterial, DailyReport } from './types'
 import 'dotenv/config';
+import { createHash } from 'crypto'
 async function main() {
   const db = await initDB()
   const app = express()
 
   app.use(cors())
   app.use(express.json())
+  // Password auth
+  app.post('/api/auth/login', async (req, res) => {
+    const { email, password } = req.body as { email: string; password: string }
+    if (!email || !password) return res.status(400).json({ message: 'Email и пароль обязательны' })
+    const hp = createHash('sha256').update(password).digest('hex')
+    const u = await db.get<{ api_token: string; name: string; role: string }>(
+      'SELECT api_token, name, role FROM users WHERE email = ? AND password_hash = ?',
+      email,
+      hp
+    )
+    if (!u) return res.status(401).json({ message: 'Неверные данные' })
+    res.json({ token: u.api_token, name: u.name, role: u.role })
+  })
   // Simple token auth middleware (API token from users.api_token)
   app.use(async (req: Request, res: Response, next: NextFunction) => {
     const openPaths = [

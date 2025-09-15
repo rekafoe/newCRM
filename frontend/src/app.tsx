@@ -14,6 +14,7 @@ import ManagePresetsModal from "./components/ManagePresetsModal";
 
 import { ProgressBar, OrderStatus } from "./components/order/ProgressBar";
 import { OrderTotal } from "./components/order/OrderTotal";
+import { setAuthToken } from './api';
 
 
 export default function App() {
@@ -97,6 +98,7 @@ export default function App() {
               <div className="detail-actions">
                 <button onClick={() => setShowPresets(true)}>Пресеты</button>
                 <button onClick={() => setShowAddItem(true)}>+ Позиция</button>
+                <button onClick={() => { setAuthToken(undefined); location.href = '/login'; }}>Выйти</button>
               </div>
             </div>
 

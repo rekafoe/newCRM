@@ -6,6 +6,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.initDB = initDB;
 const sqlite3_1 = __importDefault(require("sqlite3"));
+const crypto_1 = require("crypto");
 const sqlite_1 = require("sqlite");
 const path_1 = __importDefault(require("path"));
 const DB_FILE = path_1.default.resolve(__dirname, '../data.db');
@@ -24,7 +25,10 @@ async function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       email TEXT,
-      phone TEXT
+      phone TEXT,
+      role TEXT,
+      api_token TEXT UNIQUE,
+      password_hash TEXT
     );
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,6 +107,9 @@ async function initDB() {
         "ALTER TABLE orders ADD COLUMN paymentUrl TEXT",
         "ALTER TABLE orders ADD COLUMN paymentId TEXT",
         "ALTER TABLE daily_reports ADD COLUMN user_id INTEGER",
+        "ALTER TABLE users ADD COLUMN role TEXT",
+        "ALTER TABLE users ADD COLUMN api_token TEXT",
+        "ALTER TABLE users ADD COLUMN password_hash TEXT",
         "CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports(report_date)",
         "CREATE INDEX IF NOT EXISTS idx_daily_reports_user ON daily_reports(user_id)"
     ];
@@ -116,13 +123,15 @@ async function initDB() {
     const userCount = await db.get(`SELECT COUNT(1) as c FROM users`);
     if (!userCount || Number(userCount.c) === 0) {
         console.log('🌱 Seeding users...');
+        const hp = (p) => (0, crypto_1.createHash)('sha256').update(p).digest('hex');
         const users = [
-            { name: 'Менеджер 1', email: 'm1@example.com', phone: '+375290000001' },
-            { name: 'Менеджер 2', email: 'm2@example.com', phone: '+375290000002' },
-            { name: 'Менеджер 3', email: 'm3@example.com', phone: '+375290000003' }
+            { name: 'Админ', email: 'admin@example.com', phone: '+375290000000', role: 'admin', api_token: 'admin-token-123', password_hash: hp('admin123') },
+            { name: 'Менеджер 1', email: 'm1@example.com', phone: '+375290000001', role: 'manager', api_token: 'manager-token-111', password_hash: hp('manager123') },
+            { name: 'Менеджер 2', email: 'm2@example.com', phone: '+375290000002', role: 'manager', api_token: 'manager-token-222', password_hash: hp('manager123') },
+            { name: 'Наблюдатель', email: 'view@example.com', phone: '+375290000003', role: 'viewer', api_token: 'viewer-token-333', password_hash: hp('viewer123') }
         ];
         for (const u of users) {
-            await db.run('INSERT OR IGNORE INTO users (name, email, phone) VALUES (?, ?, ?)', u.name, u.email, u.phone);
+            await db.run('INSERT OR IGNORE INTO users (name, email, phone, role, api_token, password_hash) VALUES (?, ?, ?, ?, ?, ?)', u.name, u.email, u.phone, u.role, u.api_token, u.password_hash);
         }
         console.log('✅ Users seeded');
     }

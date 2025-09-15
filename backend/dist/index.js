@@ -8,11 +8,23 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const db_1 = require("./db");
 require("dotenv/config");
+const crypto_1 = require("crypto");
 async function main() {
     const db = await (0, db_1.initDB)();
     const app = (0, express_1.default)();
     app.use((0, cors_1.default)());
     app.use(express_1.default.json());
+    // Password auth
+    app.post('/api/auth/login', async (req, res) => {
+        const { email, password } = req.body;
+        if (!email || !password)
+            return res.status(400).json({ message: 'Email и пароль обязательны' });
+        const hp = (0, crypto_1.createHash)('sha256').update(password).digest('hex');
+        const u = await db.get('SELECT api_token, name, role FROM users WHERE email = ? AND password_hash = ?', email, hp);
+        if (!u)
+            return res.status(401).json({ message: 'Неверные данные' });
+        res.json({ token: u.api_token, name: u.name, role: u.role });
+    });
     // Simple token auth middleware (API token from users.api_token)
     app.use(async (req, res, next) => {
         const openPaths = [
