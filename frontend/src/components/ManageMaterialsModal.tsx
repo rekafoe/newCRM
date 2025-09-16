@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Material } from '../types';
-import { getMaterials, saveMaterial, deleteMaterial, getMaterialMoves } from '../api';
+import { getMaterials, saveMaterial, deleteMaterial, getMaterialMoves, getMaterialTop, getMaterialForecast } from '../api';
 
 interface FormState {
   id?: number;
@@ -20,6 +20,8 @@ export default function ManageMaterialsModal({ onClose }: Props) {
   const [showMoves, setShowMoves] = useState(false);
   const [moves, setMoves] = useState<any[]>([]);
   const [filter, setFilter] = useState<{ materialId?: number | ''; orderId?: number | ''; user_id?: number | ''; from?: string; to?: string }>({});
+  const [reportTop, setReportTop] = useState<any[]>([]);
+  const [reportForecast, setReportForecast] = useState<any[]>([]);
 
   useEffect(() => {
     load();
@@ -141,7 +143,37 @@ export default function ManageMaterialsModal({ onClose }: Props) {
               </tbody>
             </table>
           </div>
-          <button onClick={() => setShowMoves(false)}>Закрыть</button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button onClick={async () => {
+              const res = await getMaterialTop({ from: filter.from, to: filter.to, limit: 10 });
+              setReportTop(res.data as any[]);
+            }}>ТОП расход</button>
+            <button onClick={async () => {
+              const res = await getMaterialForecast();
+              setReportForecast(res.data as any[]);
+            }}>Прогноз закупок</button>
+            <button onClick={() => { setReportTop([]); setReportForecast([]); setShowMoves(false); }}>Закрыть</button>
+          </div>
+          {(reportTop.length > 0) && (
+            <div style={{ marginTop: 12 }}>
+              <h5>ТОП расход</h5>
+              <ul style={{ margin: 0, paddingLeft: 16 }}>
+                {reportTop.map((r: any) => (
+                  <li key={r.id}>{r.name}: {r.spent}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(reportForecast.length > 0) && (
+            <div style={{ marginTop: 12 }}>
+              <h5>Прогноз закупок</h5>
+              <ul style={{ margin: 0, paddingLeft: 16 }}>
+                {reportForecast.map((r: any) => (
+                  <li key={r.id}>{r.name} — остаток {r.quantity}{r.unit}, мин {r.min_quantity ?? ''}, рекомендовано заказать {r.suggested_order}{r.unit}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>

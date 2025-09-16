@@ -16,7 +16,7 @@ import ManagePresetsModal from "./components/ManagePresetsModal";
 
 import { ProgressBar, OrderStatus } from "./components/order/ProgressBar";
 import { OrderTotal } from "./components/order/OrderTotal";
-import { setAuthToken, getOrderStatuses, listOrderFiles, uploadOrderFile, deleteOrderFile, approveOrderFile, createPrepaymentLink } from './api';
+import { setAuthToken, getOrderStatuses, listOrderFiles, uploadOrderFile, deleteOrderFile, approveOrderFile, createPrepaymentLink, getLowStock } from './api';
 import type { OrderFile } from './types';
 
 
@@ -29,10 +29,14 @@ export default function App() {
   const [statuses, setStatuses] = useState<Array<{ id: number; name: string; color?: string; sort_order: number }>>([]);
   const [files, setFiles] = useState<OrderFile[]>([]);
   const [prepayAmount, setPrepayAmount] = useState<string>('');
+  const [lowStock, setLowStock] = useState<any[]>([]);
 
   useEffect(() => {
     loadOrders();
     getOrderStatuses().then(r => setStatuses(r.data));
+    if (typeof window !== 'undefined' && localStorage.getItem('crmRole') === 'admin') {
+      getLowStock().then(r => setLowStock(r.data as any[]));
+    }
   }, []);
   useEffect(() => {
     if (selectedId) {
@@ -63,6 +67,11 @@ export default function App() {
       <aside className="sidebar">
         <Link to="/reports">Ежедневные отчёты</Link>
         <h2>Заказы</h2>
+        {lowStock.length > 0 && (
+          <div style={{ background: '#fff4e5', border: '1px solid #ffcc80', color: '#7a4f01', padding: 8, borderRadius: 6 }}>
+            Низкие остатки: {lowStock.slice(0,3).map((m: any) => m.name).join(', ')}{lowStock.length>3?'…':''}
+          </div>
+        )}
         
         <ul className="order-list">
           {orders.map((o) => (

@@ -207,6 +207,7 @@ async function main() {
         sheets?: number
         waste?: number
       }
+      const authUser = (req as any).user as { id: number } | undefined
 
       // Узнаём материалы и остатки
       const needed = (await db.all<{
@@ -243,6 +244,14 @@ async function main() {
             'UPDATE materials SET quantity = quantity - ? WHERE id = ?',
             needQty,
             n.materialId
+          )
+          await db.run(
+            'INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)',
+            n.materialId,
+            -needQty,
+            'order add item',
+            orderId,
+            authUser?.id ?? null
           )
         }
 
@@ -438,6 +447,7 @@ async function main() {
     asyncHandler(async (req, res) => {
       const orderId = Number(req.params.orderId)
       const itemId = Number(req.params.itemId)
+      const authUser = (req as any).user as { id: number } | undefined
 
       // Находим позицию и её состав материалов
       const it = await db.get<{
@@ -478,6 +488,14 @@ async function main() {
               returnQty,
               c.materialId
             )
+            await db.run(
+              'INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)',
+              c.materialId,
+              returnQty,
+              'order delete item',
+              orderId,
+              authUser?.id ?? null
+            )
           }
         }
 
@@ -496,6 +514,7 @@ async function main() {
     '/api/orders/:id',
     asyncHandler(async (req, res) => {
       const id = Number(req.params.id)
+      const authUser = (req as any).user as { id: number } | undefined
       // Собираем все позиции заказа и их состав
       const items = (await db.all<{
         id: number
@@ -535,6 +554,14 @@ async function main() {
               'UPDATE materials SET quantity = quantity + ? WHERE id = ?',
               addQty,
               materialId
+            )
+            await db.run(
+              'INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)',
+              materialId,
+              addQty,
+              'order delete',
+              id,
+              authUser?.id ?? null
             )
           }
         }
@@ -650,6 +677,51 @@ async function main() {
     '/api/printers',
     asyncHandler(async (_req, res) => {
       const rows = await db.all<{ id: number; code: string; name: string }>('SELECT id, code, name FROM printers ORDER BY name')
+      res.json(rows)
+    })
+  )
+
+  // Materials low stock and reports
+  app.get(
+    '/api/materials/low-stock',
+    asyncHandler(async (_req, res) => {
+      const rows = await db.all<any>(`SELECT id, name, unit, quantity, min_quantity as min_quantity FROM materials WHERE min_quantity IS NOT NULL AND quantity <= min_quantity ORDER BY name`)
+      res.json(rows)
+    })
+  )
+  app.get(
+    '/api/materials/report/top',
+    asyncHandler(async (req, res) => {
+      const { from, to, limit = 10 } = req.query as any
+      const where: string[] = []
+      const params: any[] = []
+      if (from) { where.push('mm.created_at >= ?'); params.push(String(from)) }
+      if (to) { where.push('mm.created_at <= ?'); params.push(String(to)) }
+      const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : ''
+      const rows = await db.all<any>(
+        `SELECT m.id, m.name, SUM(CASE WHEN mm.delta < 0 THEN -mm.delta ELSE 0 END) AS spent
+           FROM material_moves mm
+           JOIN materials m ON m.id = mm.materialId
+          ${whereSql}
+          GROUP BY m.id, m.name
+          ORDER BY spent DESC
+          LIMIT ?`,
+        ...params,
+        Number(limit)
+      )
+      res.json(rows)
+    })
+  )
+  app.get(
+    '/api/materials/report/forecast',
+    asyncHandler(async (_req, res) => {
+      const rows = await db.all<any>(
+        `SELECT m.id, m.name, m.unit, m.quantity, m.min_quantity,
+                ROUND(m.quantity * 0.5, 2) AS suggested_order
+           FROM materials m
+          WHERE m.min_quantity IS NOT NULL AND m.quantity <= m.min_quantity
+          ORDER BY (m.min_quantity - m.quantity) DESC`
+      )
       res.json(rows)
     })
   )
@@ -911,11 +983,13 @@ async function main() {
             for (const c of composition) {
               const need = (c.qtyPerItem || 0) * deltaQty
               if (need > 0) await db.run('UPDATE materials SET quantity = quantity - ? WHERE id = ?', need, c.materialId)
+              if (need > 0) await db.run('INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)', c.materialId, -need, 'order update qty +', orderId, (req as any).user?.id ?? null)
             }
           } else {
             for (const c of composition) {
               const back = (c.qtyPerItem || 0) * Math.abs(deltaQty)
               if (back > 0) await db.run('UPDATE materials SET quantity = quantity + ? WHERE id = ?', back, c.materialId)
+              if (back > 0) await db.run('INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)', c.materialId, back, 'order update qty -', orderId, (req as any).user?.id ?? null)
             }
           }
         }

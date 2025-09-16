@@ -42,6 +42,9 @@ export const deleteMaterial = (id: number) => api.delete(`/materials/${id}`);
 export const spendMaterial = (payload: { materialId: number; delta: number; reason?: string; orderId?: number }) => api.post<Material>('/materials/spend', payload);
 export const getMaterialMoves = (params?: { materialId?: number; orderId?: number; user_id?: number; from?: string; to?: string }) =>
   api.get('/materials/moves', { params });
+export const getLowStock = () => api.get<Material[]>('/materials/low-stock');
+export const getMaterialTop = (params?: { from?: string; to?: string; limit?: number }) => api.get('/materials/report/top', { params });
+export const getMaterialForecast = () => api.get('/materials/report/forecast');
 
 export const getProductMaterials = (cat: string, desc: string) =>
   api.get<MaterialRow[]>(`/product-materials/${encodeURIComponent(cat)}/${encodeURIComponent(desc)}`);
