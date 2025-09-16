@@ -131,12 +131,33 @@ export async function initDB(): Promise<Database> {
     "ALTER TABLE users ADD COLUMN api_token TEXT",
     "ALTER TABLE users ADD COLUMN password_hash TEXT",
     "ALTER TABLE items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE items ADD COLUMN printerId INTEGER",
+    "ALTER TABLE items ADD COLUMN sides INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE items ADD COLUMN sheets INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE items ADD COLUMN waste INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE items ADD COLUMN clicks INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE IF NOT EXISTS material_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, materialId INTEGER NOT NULL, delta REAL NOT NULL, reason TEXT, orderId INTEGER, user_id INTEGER, created_at TEXT DEFAULT (datetime('now')), FOREIGN KEY(materialId) REFERENCES materials(id) ON DELETE CASCADE)",
+    "CREATE TABLE IF NOT EXISTS printers (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS printer_counters (id INTEGER PRIMARY KEY AUTOINCREMENT, printer_id INTEGER NOT NULL, counter_date TEXT NOT NULL, value INTEGER NOT NULL, created_at TEXT DEFAULT (datetime('now')), UNIQUE(printer_id, counter_date), FOREIGN KEY(printer_id) REFERENCES printers(id) ON DELETE CASCADE)",
     "CREATE TABLE IF NOT EXISTS order_statuses (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT, sort_order INTEGER NOT NULL DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports(report_date)",
     "CREATE INDEX IF NOT EXISTS idx_daily_reports_user ON daily_reports(user_id)"
   ]
   for (const sql of alters) {
     try { await db.exec(sql) } catch {}
+  }
+  // Seed printers
+  const prCount = await db.get<{ c: number }>(`SELECT COUNT(1) as c FROM printers`)
+  if (!prCount || Number((prCount as any).c) === 0) {
+    console.log('🌱 Seeding printers...')
+    const printers = [
+      { code: 'ch81', name: 'Коніка CH81 (цветная)' },
+      { code: 'c554', name: 'Коніка C554 (офисная)' }
+    ]
+    for (const p of printers) {
+      await db.run('INSERT INTO printers (code, name) VALUES (?, ?)', p.code, p.name)
+    }
+    console.log('✅ Printers seeded')
   }
   // Seed order statuses if empty
   const stRow = await db.get<{ c: number }>(`SELECT COUNT(1) as c FROM order_statuses`)

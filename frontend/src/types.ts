@@ -4,6 +4,11 @@ export interface Item {
   params: { description: string };
   price: number;
   quantity?: number;
+  printerId?: number;
+  sides?: number;
+  sheets?: number;
+  waste?: number;
+  clicks?: number;
 }
 
 export interface Order {
@@ -81,3 +86,5 @@ export interface OrderFile {
   approvedAt?: string;
   approvedBy?: number;
 }
+
+export interface Printer { id: number; code: string; name: string }

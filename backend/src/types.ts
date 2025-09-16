@@ -5,6 +5,11 @@ export interface Item {
   params: { description: string };
   price: number;
   quantity: number;
+  printerId?: number;
+  sides?: number; // 1 or 2
+  sheets?: number; // SRA3 sheets printed
+  waste?: number;  // defective sheets
+  clicks?: number; // computed clicks for printers
 }
 
 export interface Order {
@@ -56,4 +61,18 @@ export interface OrderFile {
   approved: number; // 0/1
   approvedAt?: string;
   approvedBy?: number;
+}
+
+export interface Printer {
+  id: number;
+  code: string;
+  name: string;
+}
+
+export interface PrinterCounter {
+  id: number;
+  printer_id: number;
+  counter_date: string; // YYYY-MM-DD
+  value: number;
+  created_at: string;
 }

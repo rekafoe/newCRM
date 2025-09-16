@@ -85,7 +85,7 @@ async function main() {
           params: string
           price: number
         }>(
-          'SELECT id, orderId, type, params, price, quantity FROM items WHERE orderId = ?',
+          'SELECT id, orderId, type, params, price, quantity, printerId, sides, sheets, waste, clicks FROM items WHERE orderId = ?',
           o.id
         )) as unknown as Array<{
           id: number
@@ -94,6 +94,11 @@ async function main() {
           params: string
           price: number
           quantity: number
+          printerId: number | null
+          sides: number
+          sheets: number
+          waste: number
+          clicks: number
         }>
         o.items = itemsRaw.map(ir => ({
           id: ir.id,
@@ -101,7 +106,12 @@ async function main() {
           type: ir.type,
           params: JSON.parse(ir.params),
           price: ir.price,
-          quantity: ir.quantity ?? 1
+          quantity: ir.quantity ?? 1,
+          printerId: ir.printerId ?? undefined,
+          sides: ir.sides,
+          sheets: ir.sheets,
+          waste: ir.waste,
+          clicks: ir.clicks
         }))
       }
       res.json(orders)
@@ -187,11 +197,15 @@ async function main() {
     '/api/orders/:id/items',
     asyncHandler(async (req, res) => {
       const orderId = Number(req.params.id)
-      const { type, params, price, quantity = 1 } = req.body as {
+      const { type, params, price, quantity = 1, printerId, sides = 1, sheets = 0, waste = 0 } = req.body as {
         type: string
         params: { description: string }
         price: number
         quantity?: number
+        printerId?: number
+        sides?: number
+        sheets?: number
+        waste?: number
       }
 
       // Узнаём материалы и остатки
@@ -229,13 +243,19 @@ async function main() {
           )
         }
 
+        const clicks = Math.max(0, Number(sheets) || 0) * (Math.max(1, Number(sides) || 1) * 2) // SRA3 one-side=2 clicks, two-sides=4
         const insertItem = await db.run(
-          'INSERT INTO items (orderId, type, params, price, quantity) VALUES (?, ?, ?, ?, ?)',
+          'INSERT INTO items (orderId, type, params, price, quantity, printerId, sides, sheets, waste, clicks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           orderId,
           type,
           JSON.stringify(params),
           price,
-          Math.max(1, Number(quantity) || 1)
+          Math.max(1, Number(quantity) || 1),
+          printerId || null,
+          Math.max(1, Number(sides) || 1),
+          Math.max(0, Number(sheets) || 0),
+          Math.max(0, Number(waste) || 0),
+          clicks
         )
         const itemId = insertItem.lastID!
         const rawItem = await db.get<{
@@ -245,8 +265,13 @@ async function main() {
           params: string
           price: number
           quantity: number
+          printerId: number | null
+          sides: number
+          sheets: number
+          waste: number
+          clicks: number
         }>(
-          'SELECT id, orderId, type, params, price, quantity FROM items WHERE id = ?',
+          'SELECT id, orderId, type, params, price, quantity, printerId, sides, sheets, waste, clicks FROM items WHERE id = ?',
           itemId
         )
 
@@ -258,7 +283,12 @@ async function main() {
           type: rawItem!.type,
           params: JSON.parse(rawItem!.params),
           price: rawItem!.price,
-          quantity: rawItem!.quantity ?? 1
+          quantity: rawItem!.quantity ?? 1,
+          printerId: rawItem!.printerId ?? undefined,
+          sides: rawItem!.sides,
+          sheets: rawItem!.sheets,
+          waste: rawItem!.waste,
+          clicks: rawItem!.clicks
         }
         res.status(201).json(item)
         return
@@ -612,10 +642,37 @@ async function main() {
     })
   )
 
+  // Printers
+  app.get(
+    '/api/printers',
+    asyncHandler(async (_req, res) => {
+      const rows = await db.all<{ id: number; code: string; name: string }>('SELECT id, code, name FROM printers ORDER BY name')
+      res.json(rows)
+    })
+  )
+
+  // Printer counters submit
+  app.post(
+    '/api/printers/:id/counters',
+    asyncHandler(async (req, res) => {
+      const user = (req as any).user as { id: number; role: string } | undefined
+      if (!user || user.role !== 'admin') { res.status(403).json({ message: 'Forbidden' }); return }
+      const id = Number(req.params.id)
+      const { counter_date, value } = req.body as { counter_date: string; value: number }
+      try {
+        await db.run('INSERT OR REPLACE INTO printer_counters (printer_id, counter_date, value) VALUES (?, ?, ?)', id, counter_date, Number(value))
+      } catch (e) { throw e }
+      const row = await db.get<any>('SELECT id, printer_id, counter_date, value, created_at FROM printer_counters WHERE printer_id = ? AND counter_date = ?', id, counter_date)
+      res.status(201).json(row)
+    })
+  )
+
   // POST /api/materials — создать или обновить материал
   app.post(
     '/api/materials',
     asyncHandler(async (req, res) => {
+      const user = (req as any).user as { id: number; role: string } | undefined
+      if (!user || user.role !== 'admin') { res.status(403).json({ message: 'Forbidden' }); return }
       const mat = req.body as Material
       try {
         if (mat.id) {
@@ -635,7 +692,6 @@ async function main() {
           )
         }
       } catch (e: any) {
-        // Обрабатываем конфликт уникальности имени
         if (e && typeof e.message === 'string' && e.message.includes('UNIQUE constraint failed: materials.name')) {
           const err: any = new Error('Материал с таким именем уже существует')
           err.status = 409
@@ -654,8 +710,31 @@ async function main() {
   app.delete(
     '/api/materials/:id',
     asyncHandler(async (req, res) => {
+      const user = (req as any).user as { id: number; role: string } | undefined
+      if (!user || user.role !== 'admin') { res.status(403).json({ message: 'Forbidden' }); return }
       await db.run('DELETE FROM materials WHERE id = ?', Number(req.params.id))
       res.status(204).end()
+    })
+  )
+
+  // POST /api/materials/spend — админское движение материалов (+/-)
+  app.post(
+    '/api/materials/spend',
+    asyncHandler(async (req, res) => {
+      const user = (req as any).user as { id: number; role: string } | undefined
+      if (!user || user.role !== 'admin') { res.status(403).json({ message: 'Forbidden' }); return }
+      const { materialId, delta, reason, orderId } = req.body as { materialId: number; delta: number; reason?: string; orderId?: number }
+      await db.run('BEGIN')
+      try {
+        await db.run('UPDATE materials SET quantity = quantity + ? WHERE id = ?', Number(delta), Number(materialId))
+        await db.run('INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)', materialId, Number(delta), reason || null, orderId || null, user.id)
+        await db.run('COMMIT')
+      } catch (e) {
+        await db.run('ROLLBACK')
+        throw e
+      }
+      const mat = await db.get<Material>('SELECT * FROM materials WHERE id = ?', Number(materialId))
+      res.json(mat)
     })
   )
 

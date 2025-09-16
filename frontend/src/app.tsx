@@ -152,6 +152,10 @@ export default function App() {
                   <div style={{ flex: 1 }}>
                     <strong>{it.type}</strong> — {it.params.description} —{" "}
                     {it.price.toLocaleString()} BYN × {it.quantity ?? 1}
+                    {it.printerId ? ` — принтер #${it.printerId}` : ''}
+                    {typeof it.sides !== 'undefined' ? ` — ${it.sides} стор.` : ''}
+                    {typeof it.sheets !== 'undefined' ? ` — листы: ${it.sheets}` : ''}
+                    {typeof it.waste !== 'undefined' ? ` — брак: ${it.waste}` : ''}
                   </div>
                   <button
                     className="btn-danger"

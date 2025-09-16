@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { PresetCategory, MaterialRow, Item, Order } from '../types';
-import { addOrderItem, getProductMaterials, getPresets } from '../api';
+import { addOrderItem, getProductMaterials, getPresets, getPrinters } from '../api';
+import type { Printer } from '../types';
 
 interface Props {
   order: Order;
@@ -17,9 +18,15 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
   const [extras, setExtras] = useState<Record<string, number | boolean>>({});
   const [required, setRequired] = useState<MaterialRow[]>([]);
   const [ok, setOk] = useState(true);
+  const [printers, setPrinters] = useState<Printer[]>([]);
+  const [printerId, setPrinterId] = useState<number | ''>('');
+  const [sides, setSides] = useState(1);
+  const [sheets, setSheets] = useState(0);
+  const [waste, setWaste] = useState(0);
 
   useEffect(() => {
     getPresets().then(r => setPresets(r.data));
+    getPrinters().then(r => setPrinters(r.data));
     if (product && category) {
       getProductMaterials(category.category, product.description).then(res => {
         setRequired(res.data);
@@ -35,7 +42,11 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
       type: category.category,
       params,
       price: price || product.price,
-      quantity
+      quantity,
+      printerId: printerId ? Number(printerId) : undefined,
+      sides,
+      sheets,
+      waste
     };
     addOrderItem(order.id, item).then(onSave);
   }
@@ -101,6 +112,32 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
               style={{ marginLeft: 8 }}
             />
           </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <label>
+              Принтер:
+              <select value={printerId} onChange={e => setPrinterId(e.target.value ? Number(e.target.value) : '')}>
+                <option value="">Не выбран</option>
+                {printers.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Стороны:
+              <select value={sides} onChange={e => setSides(Number(e.target.value))}>
+                <option value={1}>Односторонняя</option>
+                <option value={2}>Двусторонняя</option>
+              </select>
+            </label>
+            <label>
+              Листы SRA3:
+              <input type="number" value={sheets} min={0} onChange={e => setSheets(Math.max(0, Number(e.target.value) || 0))} />
+            </label>
+            <label>
+              Брак (листы):
+              <input type="number" value={waste} min={0} onChange={e => setWaste(Math.max(0, Number(e.target.value) || 0))} />
+            </label>
+          </div>
         </div>
       )}
 

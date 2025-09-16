@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Order, Item, PresetCategory, MaterialRow, Material, DailyReport, UserRef, OrderFile } from './types';
+import { Order, Item, PresetCategory, MaterialRow, Material, DailyReport, UserRef, OrderFile, Printer } from './types';
 const api = axios.create({ baseURL: '/api' });
 
 // Attach auth token from localStorage for protected endpoints
@@ -37,6 +37,7 @@ export const getMaterials = () => api.get<Material[]>('/materials');
 export const saveMaterial = (mat: Partial<Material>) =>
   api.post<Material[]>('/materials', mat);
 export const deleteMaterial = (id: number) => api.delete(`/materials/${id}`);
+export const spendMaterial = (payload: { materialId: number; delta: number; reason?: string; orderId?: number }) => api.post<Material>('/materials/spend', payload);
 
 export const getProductMaterials = (cat: string, desc: string) =>
   api.get<MaterialRow[]>(`/product-materials/${encodeURIComponent(cat)}/${encodeURIComponent(desc)}`);
@@ -75,3 +76,7 @@ export const approveOrderFile = (orderId: number, fileId: number) => api.post<Or
 
 // Payments / Prepayment
 export const createPrepaymentLink = (orderId: number, amount?: number) => api.post<Order>(`/orders/${orderId}/prepay`, amount != null ? { amount } : {});
+
+// Printers
+export const getPrinters = () => api.get<Printer[]>('/printers');
+export const submitPrinterCounter = (printerId: number, data: { counter_date: string; value: number }) => api.post(`/printers/${printerId}/counters`, data);

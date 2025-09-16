@@ -1,6 +1,6 @@
 // frontend/src/pages/DailyReportPage.tsx
 import React, { useEffect, useState } from 'react';
-import { getDailyReports, getDailyReportByDate, updateDailyReport, createDailyReport, getUsers } from '../api';
+import { getDailyReports, getDailyReportByDate, updateDailyReport, createDailyReport, getUsers, getPrinters, submitPrinterCounter } from '../api';
 import { DailyReport } from '../types';
 import EditModal from '../components/EditReportModal';
 
@@ -14,9 +14,13 @@ export const DailyReportPage: React.FC = () => {
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
+  const [printers, setPrinters] = useState<{ id: number; code: string; name: string }[]>([]);
+  const [counterDate, setCounterDate] = useState<string>(() => new Date().toISOString().slice(0,10));
+  const [counters, setCounters] = useState<Record<number, string>>({});
 
   useEffect(() => {
     getUsers().then(r => setUsers(r.data));
+    getPrinters().then(r => setPrinters(r.data));
   }, []);
 
   useEffect(() => {
@@ -104,6 +108,33 @@ export const DailyReportPage: React.FC = () => {
             <button onClick={() => setModalOpen(true)}>
               Редактировать
             </button>
+
+            {/* ===== СЧЁТЧИКИ ПРИНТЕРОВ ===== */}
+            <div style={{ marginTop: 16, padding: 12, border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff' }}>
+              <h3 style={{ marginTop: 0 }}>Счётчики принтеров</h3>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <span>Дата:</span>
+                <input type="date" value={counterDate} onChange={e => setCounterDate(e.target.value)} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px 100px', gap: 8, alignItems: 'center' }}>
+                <div style={{ fontWeight: 600 }}>Принтер</div>
+                <div style={{ fontWeight: 600 }}>Показание</div>
+                <div />
+                {printers.map(p => (
+                  <React.Fragment key={p.id}>
+                    <div>{p.name}</div>
+                    <input type="number" value={counters[p.id] || ''} onChange={e => setCounters(s => ({ ...s, [p.id]: e.target.value }))} />
+                    <button onClick={async () => {
+                      if (!counters[p.id]) return;
+                      try {
+                        await submitPrinterCounter(p.id, { counter_date: counterDate, value: Number(counters[p.id]) });
+                        alert('Сохранено');
+                      } catch { alert('Не удалось сохранить'); }
+                    }}>Сохранить</button>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
           </>
         ) : (
           <p>Нет доступных данных</p>
