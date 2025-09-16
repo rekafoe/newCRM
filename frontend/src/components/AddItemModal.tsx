@@ -13,6 +13,7 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
   const [category, setCategory] = useState<PresetCategory | null>(null);
   const [product, setProduct] = useState<PresetCategory['items'][0] | null>(null);
   const [price, setPrice] = useState(0);
+  const [quantity, setQuantity] = useState(1);
   const [extras, setExtras] = useState<Record<string, number | boolean>>({});
   const [required, setRequired] = useState<MaterialRow[]>([]);
   const [ok, setOk] = useState(true);
@@ -22,10 +23,10 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
     if (product && category) {
       getProductMaterials(category.category, product.description).then(res => {
         setRequired(res.data);
-        setOk(res.data.every(r => r.quantity >= r.qtyPerItem));
+        setOk(res.data.every(r => r.quantity >= r.qtyPerItem * Math.max(1, quantity)));
       });
     }
-  }, [product, category]);
+  }, [product, category, quantity]);
 
   function handleSave() {
     if (!product || !category) return;
@@ -33,7 +34,8 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
     const item: Omit<Item, 'id'> = {
       type: category.category,
       params,
-      price: price || product.price
+      price: price || product.price,
+      quantity
     };
     addOrderItem(order.id, item).then(onSave);
   }
@@ -89,6 +91,16 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
               onChange={e => setPrice(Number(e.target.value))}
             />
           </p>
+          <p>
+            Количество:
+            <input
+              type="number"
+              value={quantity}
+              min={1}
+              onChange={e => setQuantity(Math.max(1, Number(e.target.value) || 1))}
+              style={{ marginLeft: 8 }}
+            />
+          </p>
         </div>
       )}
 
@@ -96,7 +108,7 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
         <div style={{ color: ok ? 'green' : 'red' }}>
           {required.map(r => (
             <div key={r.materialId}>
-              {r.name}: {r.quantity}{r.unit} / needs {r.qtyPerItem}{r.unit}
+              {r.name}: {r.quantity}{r.unit} / needs {r.qtyPerItem * Math.max(1, quantity)}{r.unit}
             </div>
           ))}
         </div>

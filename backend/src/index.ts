@@ -66,7 +66,7 @@ async function main() {
           params: string
           price: number
         }>(
-          'SELECT id, orderId, type, params, price FROM items WHERE orderId = ?',
+          'SELECT id, orderId, type, params, price, quantity FROM items WHERE orderId = ?',
           o.id
         )) as unknown as Array<{
           id: number
@@ -74,13 +74,15 @@ async function main() {
           type: string
           params: string
           price: number
+          quantity: number
         }>
         o.items = itemsRaw.map(ir => ({
           id: ir.id,
           orderId: ir.orderId,
           type: ir.type,
           params: JSON.parse(ir.params),
-          price: ir.price
+          price: ir.price,
+          quantity: ir.quantity ?? 1
         }))
       }
       res.json(orders)
@@ -166,10 +168,11 @@ async function main() {
     '/api/orders/:id/items',
     asyncHandler(async (req, res) => {
       const orderId = Number(req.params.id)
-      const { type, params, price } = req.body as {
+      const { type, params, price, quantity = 1 } = req.body as {
         type: string
         params: { description: string }
         price: number
+        quantity?: number
       }
 
       // Узнаём материалы и остатки
@@ -194,24 +197,26 @@ async function main() {
       await db.run('BEGIN')
       try {
         for (const n of needed) {
-          if (n.quantity < n.qtyPerItem) {
+          const needQty = n.qtyPerItem * Math.max(1, Number(quantity) || 1)
+          if (n.quantity < needQty) {
             const err: any = new Error(`Недостаточно материала ID=${n.materialId}`)
             err.status = 400
             throw err
           }
           await db.run(
             'UPDATE materials SET quantity = quantity - ? WHERE id = ?',
-            n.qtyPerItem,
+            needQty,
             n.materialId
           )
         }
 
         const insertItem = await db.run(
-          'INSERT INTO items (orderId, type, params, price) VALUES (?, ?, ?, ?)',
+          'INSERT INTO items (orderId, type, params, price, quantity) VALUES (?, ?, ?, ?, ?)',
           orderId,
           type,
           JSON.stringify(params),
-          price
+          price,
+          Math.max(1, Number(quantity) || 1)
         )
         const itemId = insertItem.lastID!
         const rawItem = await db.get<{
@@ -220,8 +225,9 @@ async function main() {
           type: string
           params: string
           price: number
+          quantity: number
         }>(
-          'SELECT id, orderId, type, params, price FROM items WHERE id = ?',
+          'SELECT id, orderId, type, params, price, quantity FROM items WHERE id = ?',
           itemId
         )
 
@@ -232,7 +238,8 @@ async function main() {
           orderId: rawItem!.orderId,
           type: rawItem!.type,
           params: JSON.parse(rawItem!.params),
-          price: rawItem!.price
+          price: rawItem!.price,
+          quantity: rawItem!.quantity ?? 1
         }
         res.status(201).json(item)
         return

@@ -48,6 +48,7 @@ export async function initDB(): Promise<Database> {
       type TEXT NOT NULL,
       params TEXT NOT NULL,
       price REAL NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 1,
       FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS materials (
@@ -110,6 +111,7 @@ export async function initDB(): Promise<Database> {
     "ALTER TABLE users ADD COLUMN role TEXT",
     "ALTER TABLE users ADD COLUMN api_token TEXT",
     "ALTER TABLE users ADD COLUMN password_hash TEXT",
+    "ALTER TABLE items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1",
     "CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports(report_date)",
     "CREATE INDEX IF NOT EXISTS idx_daily_reports_user ON daily_reports(user_id)"
   ]

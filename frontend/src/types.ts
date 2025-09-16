@@ -3,6 +3,7 @@ export interface Item {
   type: string;
   params: { description: string };
   price: number;
+  quantity?: number;
 }
 
 export interface Order {

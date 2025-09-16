@@ -142,7 +142,7 @@ export default function App() {
                 <div className="item" key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div style={{ flex: 1 }}>
                     <strong>{it.type}</strong> — {it.params.description} —{" "}
-                    {it.price.toLocaleString()} BYN
+                    {it.price.toLocaleString()} BYN × {it.quantity ?? 1}
                   </div>
                   <button
                     className="btn-danger"
@@ -167,6 +167,7 @@ export default function App() {
                 id: it.id,
                 type: it.type,
                 price: it.price,
+                quantity: it.quantity ?? 1,
               }))}
               discount={0}
               taxRate={0.2}
