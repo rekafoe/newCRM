@@ -42,19 +42,40 @@ export async function initDB(): Promise<Database> {
       paymentUrl TEXT,
       paymentId TEXT
     );
+    CREATE TABLE IF NOT EXISTS order_statuses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
     CREATE TABLE IF NOT EXISTS items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       orderId INTEGER NOT NULL,
       type TEXT NOT NULL,
       params TEXT NOT NULL,
       price REAL NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS order_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      orderId INTEGER NOT NULL,
+      filename TEXT NOT NULL,
+      originalName TEXT,
+      mime TEXT,
+      size INTEGER,
+      uploadedAt TEXT DEFAULT (datetime('now')),
+      approved INTEGER NOT NULL DEFAULT 0,
+      approvedAt TEXT,
+      approvedBy INTEGER,
       FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS materials (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       unit TEXT NOT NULL,
-      quantity REAL NOT NULL
+      quantity REAL NOT NULL,
+      min_quantity REAL
     );
     CREATE TABLE IF NOT EXISTS product_materials (
       presetCategory TEXT NOT NULL,
@@ -110,11 +131,51 @@ export async function initDB(): Promise<Database> {
     "ALTER TABLE users ADD COLUMN role TEXT",
     "ALTER TABLE users ADD COLUMN api_token TEXT",
     "ALTER TABLE users ADD COLUMN password_hash TEXT",
+    "ALTER TABLE items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE materials ADD COLUMN min_quantity REAL",
+    "ALTER TABLE items ADD COLUMN printerId INTEGER",
+    "ALTER TABLE items ADD COLUMN sides INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE items ADD COLUMN sheets INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE items ADD COLUMN waste INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE items ADD COLUMN clicks INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE IF NOT EXISTS material_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, materialId INTEGER NOT NULL, delta REAL NOT NULL, reason TEXT, orderId INTEGER, user_id INTEGER, created_at TEXT DEFAULT (datetime('now')), FOREIGN KEY(materialId) REFERENCES materials(id) ON DELETE CASCADE)",
+    "CREATE TABLE IF NOT EXISTS printers (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS printer_counters (id INTEGER PRIMARY KEY AUTOINCREMENT, printer_id INTEGER NOT NULL, counter_date TEXT NOT NULL, value INTEGER NOT NULL, created_at TEXT DEFAULT (datetime('now')), UNIQUE(printer_id, counter_date), FOREIGN KEY(printer_id) REFERENCES printers(id) ON DELETE CASCADE)",
+    "CREATE TABLE IF NOT EXISTS order_statuses (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT, sort_order INTEGER NOT NULL DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports(report_date)",
     "CREATE INDEX IF NOT EXISTS idx_daily_reports_user ON daily_reports(user_id)"
   ]
   for (const sql of alters) {
     try { await db.exec(sql) } catch {}
+  }
+  // Seed printers
+  const prCount = await db.get<{ c: number }>(`SELECT COUNT(1) as c FROM printers`)
+  if (!prCount || Number((prCount as any).c) === 0) {
+    console.log('🌱 Seeding printers...')
+    const printers = [
+      { code: 'ch81', name: 'Коніка CH81 (цветная)' },
+      { code: 'c554', name: 'Коніка C554 (офисная)' }
+    ]
+    for (const p of printers) {
+      await db.run('INSERT INTO printers (code, name) VALUES (?, ?)', p.code, p.name)
+    }
+    console.log('✅ Printers seeded')
+  }
+  // Seed order statuses if empty
+  const stRow = await db.get<{ c: number }>(`SELECT COUNT(1) as c FROM order_statuses`)
+  if (!stRow || Number((stRow as any).c) === 0) {
+    console.log('🌱 Seeding order statuses...')
+    const statuses = [
+      { name: 'Новый', color: '#9e9e9e', sort: 1 },
+      { name: 'В производстве', color: '#1976d2', sort: 2 },
+      { name: 'Готов к отправке', color: '#ffa000', sort: 3 },
+      { name: 'Отправлен', color: '#7b1fa2', sort: 4 },
+      { name: 'Завершён', color: '#2e7d32', sort: 5 }
+    ]
+    for (const s of statuses) {
+      await db.run('INSERT INTO order_statuses (name, color, sort_order) VALUES (?, ?, ?)', s.name, s.color, s.sort)
+    }
+    console.log('✅ Order statuses seeded')
   }
   // Seed users if empty
   const userCount = await db.get<{ c: number }>(`SELECT COUNT(1) as c FROM users`)

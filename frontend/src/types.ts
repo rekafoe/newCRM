@@ -3,6 +3,12 @@ export interface Item {
   type: string;
   params: { description: string };
   price: number;
+  quantity?: number;
+  printerId?: number;
+  sides?: number;
+  sheets?: number;
+  waste?: number;
+  clicks?: number;
 }
 
 export interface Order {
@@ -10,6 +16,14 @@ export interface Order {
   number: string;
   status: number;
   createdAt: string;
+  // Optional customer and prepayment fields synced with backend
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  prepaymentAmount?: number;
+  prepaymentStatus?: string;
+  paymentUrl?: string;
+  paymentId?: string;
   items: Item[];
 }
 
@@ -59,3 +73,18 @@ export interface DailyReport {
 }
 
 export interface UserRef { id: number; name: string }
+
+export interface OrderFile {
+  id: number;
+  orderId: number;
+  filename: string;
+  originalName?: string;
+  mime?: string;
+  size?: number;
+  uploadedAt: string;
+  approved: number;
+  approvedAt?: string;
+  approvedBy?: number;
+}
+
+export interface Printer { id: number; code: string; name: string }

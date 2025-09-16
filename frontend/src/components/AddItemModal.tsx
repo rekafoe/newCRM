@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { PresetCategory, MaterialRow, Item, Order } from '../types';
-import { addOrderItem, getProductMaterials, getPresets } from '../api';
+import { addOrderItem, getProductMaterials, getPresets, getPrinters } from '../api';
+import type { Printer } from '../types';
 
 interface Props {
   order: Order;
@@ -13,19 +14,26 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
   const [category, setCategory] = useState<PresetCategory | null>(null);
   const [product, setProduct] = useState<PresetCategory['items'][0] | null>(null);
   const [price, setPrice] = useState(0);
+  const [quantity, setQuantity] = useState(1);
   const [extras, setExtras] = useState<Record<string, number | boolean>>({});
   const [required, setRequired] = useState<MaterialRow[]>([]);
   const [ok, setOk] = useState(true);
+  const [printers, setPrinters] = useState<Printer[]>([]);
+  const [printerId, setPrinterId] = useState<number | ''>('');
+  const [sides, setSides] = useState(1);
+  const [sheets, setSheets] = useState(0);
+  const [waste, setWaste] = useState(0);
 
   useEffect(() => {
     getPresets().then(r => setPresets(r.data));
+    getPrinters().then(r => setPrinters(r.data));
     if (product && category) {
       getProductMaterials(category.category, product.description).then(res => {
         setRequired(res.data);
-        setOk(res.data.every(r => r.quantity >= r.qtyPerItem));
+        setOk(res.data.every(r => r.quantity - (r as any).min_quantity >= r.qtyPerItem * Math.max(1, quantity)));
       });
     }
-  }, [product, category]);
+  }, [product, category, quantity]);
 
   function handleSave() {
     if (!product || !category) return;
@@ -33,7 +41,12 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
     const item: Omit<Item, 'id'> = {
       type: category.category,
       params,
-      price: price || product.price
+      price: price || product.price,
+      quantity,
+      printerId: printerId ? Number(printerId) : undefined,
+      sides,
+      sheets,
+      waste
     };
     addOrderItem(order.id, item).then(onSave);
   }
@@ -89,6 +102,42 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
               onChange={e => setPrice(Number(e.target.value))}
             />
           </p>
+          <p>
+            Количество:
+            <input
+              type="number"
+              value={quantity}
+              min={1}
+              onChange={e => setQuantity(Math.max(1, Number(e.target.value) || 1))}
+              style={{ marginLeft: 8 }}
+            />
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <label>
+              Принтер:
+              <select value={printerId} onChange={e => setPrinterId(e.target.value ? Number(e.target.value) : '')}>
+                <option value="">Не выбран</option>
+                {printers.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Стороны:
+              <select value={sides} onChange={e => setSides(Number(e.target.value))}>
+                <option value={1}>Односторонняя</option>
+                <option value={2}>Двусторонняя</option>
+              </select>
+            </label>
+            <label>
+              Листы SRA3:
+              <input type="number" value={sheets} min={0} onChange={e => setSheets(Math.max(0, Number(e.target.value) || 0))} />
+            </label>
+            <label>
+              Брак (листы):
+              <input type="number" value={waste} min={0} onChange={e => setWaste(Math.max(0, Number(e.target.value) || 0))} />
+            </label>
+          </div>
         </div>
       )}
 
@@ -96,7 +145,7 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
         <div style={{ color: ok ? 'green' : 'red' }}>
           {required.map(r => (
             <div key={r.materialId}>
-              {r.name}: {r.quantity}{r.unit} / needs {r.qtyPerItem}{r.unit}
+              {r.name}: {r.quantity}{r.unit} / needs {r.qtyPerItem * Math.max(1, quantity)}{r.unit}
             </div>
           ))}
         </div>
@@ -104,6 +153,7 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
 
       <button onClick={onClose}>Отмена</button>
       <button onClick={handleSave} disabled={!product || !ok}>Сохранить</button>
+      {!ok && <div style={{ color: 'red', marginTop: 8 }}>Недостаточно материалов с учётом минимального остатка</div>}
     </div>
   );
 }

@@ -6,12 +6,31 @@ import { initDB } from './db'
 import { Order, Item, Material, ProductMaterial, DailyReport } from './types'
 import 'dotenv/config';
 import { createHash } from 'crypto'
+import path from 'path'
+import fs from 'fs'
+// Use require to avoid TS type resolution issues for multer
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const multer = require('multer') as any
 async function main() {
   const db = await initDB()
   const app = express()
 
   app.use(cors())
   app.use(express.json())
+  // Files storage
+  const uploadsDir = path.resolve(__dirname, '../uploads')
+  try { fs.mkdirSync(uploadsDir, { recursive: true }) } catch {}
+  const storage = multer.diskStorage({
+    destination: (_req: Request, _file: any, cb: (err: any, dest: string) => void) => cb(null, uploadsDir),
+    filename: (_req: Request, file: any, cb: (err: any, filename: string) => void) => {
+      const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+      const ext = path.extname(file.originalname || '')
+      cb(null, unique + ext)
+    }
+  })
+  const upload = multer({ storage })
+  app.use('/uploads', express.static(uploadsDir))
+  app.use('/api/uploads', express.static(uploadsDir))
   // Password auth
   app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body as { email: string; password: string }
@@ -66,7 +85,7 @@ async function main() {
           params: string
           price: number
         }>(
-          'SELECT id, orderId, type, params, price FROM items WHERE orderId = ?',
+          'SELECT id, orderId, type, params, price, quantity, printerId, sides, sheets, waste, clicks FROM items WHERE orderId = ?',
           o.id
         )) as unknown as Array<{
           id: number
@@ -74,13 +93,25 @@ async function main() {
           type: string
           params: string
           price: number
+          quantity: number
+          printerId: number | null
+          sides: number
+          sheets: number
+          waste: number
+          clicks: number
         }>
         o.items = itemsRaw.map(ir => ({
           id: ir.id,
           orderId: ir.orderId,
           type: ir.type,
           params: JSON.parse(ir.params),
-          price: ir.price
+          price: ir.price,
+          quantity: ir.quantity ?? 1,
+          printerId: ir.printerId ?? undefined,
+          sides: ir.sides,
+          sheets: ir.sheets,
+          waste: ir.waste,
+          clicks: ir.clicks
         }))
       }
       res.json(orders)
@@ -166,19 +197,26 @@ async function main() {
     '/api/orders/:id/items',
     asyncHandler(async (req, res) => {
       const orderId = Number(req.params.id)
-      const { type, params, price } = req.body as {
+      const { type, params, price, quantity = 1, printerId, sides = 1, sheets = 0, waste = 0 } = req.body as {
         type: string
         params: { description: string }
         price: number
+        quantity?: number
+        printerId?: number
+        sides?: number
+        sheets?: number
+        waste?: number
       }
+      const authUser = (req as any).user as { id: number } | undefined
 
       // Узнаём материалы и остатки
       const needed = (await db.all<{
         materialId: number
         qtyPerItem: number
         quantity: number
+        min_quantity: number | null
       }>(
-        `SELECT pm.materialId, pm.qtyPerItem, m.quantity
+        `SELECT pm.materialId, pm.qtyPerItem, m.quantity, m.min_quantity as min_quantity
            FROM product_materials pm
            JOIN materials m ON m.id = pm.materialId
            WHERE pm.presetCategory = ? AND pm.presetDescription = ?`,
@@ -188,30 +226,48 @@ async function main() {
         materialId: number
         qtyPerItem: number
         quantity: number
+        min_quantity: number | null
       }>
 
       // Транзакция: проверка остатков, списание и вставка позиции
       await db.run('BEGIN')
       try {
         for (const n of needed) {
-          if (n.quantity < n.qtyPerItem) {
-            const err: any = new Error(`Недостаточно материала ID=${n.materialId}`)
+          const needQty = n.qtyPerItem * Math.max(1, Number(quantity) || 1)
+          const minQ = n.min_quantity == null ? -Infinity : Number(n.min_quantity)
+          if (n.quantity - needQty < minQ) {
+            const err: any = new Error(`Недостаточно материала с учётом минимального остатка ID=${n.materialId}`)
             err.status = 400
             throw err
           }
           await db.run(
             'UPDATE materials SET quantity = quantity - ? WHERE id = ?',
-            n.qtyPerItem,
+            needQty,
             n.materialId
+          )
+          await db.run(
+            'INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)',
+            n.materialId,
+            -needQty,
+            'order add item',
+            orderId,
+            authUser?.id ?? null
           )
         }
 
+        const clicks = Math.max(0, Number(sheets) || 0) * (Math.max(1, Number(sides) || 1) * 2) // SRA3 one-side=2 clicks, two-sides=4
         const insertItem = await db.run(
-          'INSERT INTO items (orderId, type, params, price) VALUES (?, ?, ?, ?)',
+          'INSERT INTO items (orderId, type, params, price, quantity, printerId, sides, sheets, waste, clicks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           orderId,
           type,
           JSON.stringify(params),
-          price
+          price,
+          Math.max(1, Number(quantity) || 1),
+          printerId || null,
+          Math.max(1, Number(sides) || 1),
+          Math.max(0, Number(sheets) || 0),
+          Math.max(0, Number(waste) || 0),
+          clicks
         )
         const itemId = insertItem.lastID!
         const rawItem = await db.get<{
@@ -220,8 +276,14 @@ async function main() {
           type: string
           params: string
           price: number
+          quantity: number
+          printerId: number | null
+          sides: number
+          sheets: number
+          waste: number
+          clicks: number
         }>(
-          'SELECT id, orderId, type, params, price FROM items WHERE id = ?',
+          'SELECT id, orderId, type, params, price, quantity, printerId, sides, sheets, waste, clicks FROM items WHERE id = ?',
           itemId
         )
 
@@ -232,7 +294,13 @@ async function main() {
           orderId: rawItem!.orderId,
           type: rawItem!.type,
           params: JSON.parse(rawItem!.params),
-          price: rawItem!.price
+          price: rawItem!.price,
+          quantity: rawItem!.quantity ?? 1,
+          printerId: rawItem!.printerId ?? undefined,
+          sides: rawItem!.sides,
+          sheets: rawItem!.sheets,
+          waste: rawItem!.waste,
+          clicks: rawItem!.clicks
         }
         res.status(201).json(item)
         return
@@ -377,12 +445,67 @@ async function main() {
   app.delete(
     '/api/orders/:orderId/items/:itemId',
     asyncHandler(async (req, res) => {
-      await db.run(
-        'DELETE FROM items WHERE orderId = ? AND id = ?',
-        Number(req.params.orderId),
-        Number(req.params.itemId)
+      const orderId = Number(req.params.orderId)
+      const itemId = Number(req.params.itemId)
+      const authUser = (req as any).user as { id: number } | undefined
+
+      // Находим позицию и её состав материалов
+      const it = await db.get<{
+        id: number
+        type: string
+        params: string
+        quantity: number
+      }>(
+        'SELECT id, type, params, quantity FROM items WHERE orderId = ? AND id = ?',
+        orderId,
+        itemId
       )
-      res.status(204).end()
+
+      if (!it) {
+        // Нечего возвращать, просто 204
+        await db.run('DELETE FROM items WHERE orderId = ? AND id = ?', orderId, itemId)
+        res.status(204).end()
+        return
+      }
+
+      const paramsObj = JSON.parse(it.params || '{}') as { description?: string }
+      const composition = (await db.all<{
+        materialId: number
+        qtyPerItem: number
+      }>(
+        'SELECT materialId, qtyPerItem FROM product_materials WHERE presetCategory = ? AND presetDescription = ?',
+        it.type,
+        paramsObj.description || ''
+      )) as unknown as Array<{ materialId: number; qtyPerItem: number }>
+
+      await db.run('BEGIN')
+      try {
+        for (const c of composition) {
+          const returnQty = (c.qtyPerItem || 0) * Math.max(1, Number(it.quantity) || 1)
+          if (returnQty > 0) {
+            await db.run(
+              'UPDATE materials SET quantity = quantity + ? WHERE id = ?',
+              returnQty,
+              c.materialId
+            )
+            await db.run(
+              'INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)',
+              c.materialId,
+              returnQty,
+              'order delete item',
+              orderId,
+              authUser?.id ?? null
+            )
+          }
+        }
+
+        await db.run('DELETE FROM items WHERE orderId = ? AND id = ?', orderId, itemId)
+        await db.run('COMMIT')
+        res.status(204).end()
+      } catch (e) {
+        await db.run('ROLLBACK')
+        throw e
+      }
     })
   )
 
@@ -390,8 +513,67 @@ async function main() {
   app.delete(
     '/api/orders/:id',
     asyncHandler(async (req, res) => {
-      await db.run('DELETE FROM orders WHERE id = ?', Number(req.params.id))
-      res.status(204).end()
+      const id = Number(req.params.id)
+      const authUser = (req as any).user as { id: number } | undefined
+      // Собираем все позиции заказа и их состав
+      const items = (await db.all<{
+        id: number
+        type: string
+        params: string
+        quantity: number
+      }>(
+        'SELECT id, type, params, quantity FROM items WHERE orderId = ?',
+        id
+      )) as unknown as Array<{ id: number; type: string; params: string; quantity: number }>
+
+      // Агрегируем возвраты по materialId
+      const returns: Record<number, number> = {}
+      for (const it of items) {
+        const paramsObj = JSON.parse(it.params || '{}') as { description?: string }
+        const composition = (await db.all<{
+          materialId: number
+          qtyPerItem: number
+        }>(
+          'SELECT materialId, qtyPerItem FROM product_materials WHERE presetCategory = ? AND presetDescription = ?',
+          it.type,
+          paramsObj.description || ''
+        )) as unknown as Array<{ materialId: number; qtyPerItem: number }>
+        for (const c of composition) {
+          const add = (c.qtyPerItem || 0) * Math.max(1, Number(it.quantity) || 1)
+          returns[c.materialId] = (returns[c.materialId] || 0) + add
+        }
+      }
+
+      await db.run('BEGIN')
+      try {
+        for (const mid of Object.keys(returns)) {
+          const materialId = Number(mid)
+          const addQty = returns[materialId]
+          if (addQty > 0) {
+            await db.run(
+              'UPDATE materials SET quantity = quantity + ? WHERE id = ?',
+              addQty,
+              materialId
+            )
+            await db.run(
+              'INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)',
+              materialId,
+              addQty,
+              'order delete',
+              id,
+              authUser?.id ?? null
+            )
+          }
+        }
+
+        // Удаляем заказ (позиции удалятся каскадно)
+        await db.run('DELETE FROM orders WHERE id = ?', id)
+        await db.run('COMMIT')
+        res.status(204).end()
+      } catch (e) {
+        await db.run('ROLLBACK')
+        throw e
+      }
     })
   )
 
@@ -400,9 +582,239 @@ async function main() {
     '/api/materials',
     asyncHandler(async (_req, res) => {
       const materials = await db.all<Material>(
-        'SELECT * FROM materials ORDER BY name'
-      )
+        'SELECT id, name, unit, quantity, min_quantity as min_quantity FROM materials ORDER BY name'
+      ) as any
       res.json(materials)
+    })
+  )
+
+  // ===== Files per order =====
+  // GET list
+  app.get(
+    '/api/orders/:id/files',
+    asyncHandler(async (req, res) => {
+      const id = Number(req.params.id)
+      const rows = await db.all<any>(
+        'SELECT id, orderId, filename, originalName, mime, size, uploadedAt, approved, approvedAt, approvedBy FROM order_files WHERE orderId = ? ORDER BY id DESC',
+        id
+      )
+      res.json(rows)
+    })
+  )
+  // POST upload
+  app.post(
+    '/api/orders/:id/files',
+    upload.single('file'),
+    asyncHandler(async (req, res) => {
+      const orderId = Number(req.params.id)
+      const f = (req as any).file as { filename: string; originalname?: string; mimetype?: string; size?: number } | undefined
+      if (!f) { res.status(400).json({ message: 'Файл не получен' }); return }
+      await db.run(
+        'INSERT INTO order_files (orderId, filename, originalName, mime, size) VALUES (?, ?, ?, ?, ?)',
+        orderId,
+        f.filename,
+        f.originalname || null,
+        f.mimetype || null,
+        f.size || null
+      )
+      const row = await db.get<any>(
+        'SELECT id, orderId, filename, originalName, mime, size, uploadedAt, approved, approvedAt, approvedBy FROM order_files WHERE orderId = ? ORDER BY id DESC LIMIT 1',
+        orderId
+      )
+      res.status(201).json(row)
+    })
+  )
+  // DELETE file
+  app.delete(
+    '/api/orders/:orderId/files/:fileId',
+    asyncHandler(async (req, res) => {
+      const orderId = Number(req.params.orderId)
+      const fileId = Number(req.params.fileId)
+      const row = await db.get<any>('SELECT filename FROM order_files WHERE id = ? AND orderId = ?', fileId, orderId)
+      if (row && row.filename) {
+        const p = path.join(uploadsDir, String(row.filename))
+        try { fs.unlinkSync(p) } catch {}
+      }
+      await db.run('DELETE FROM order_files WHERE id = ? AND orderId = ?', fileId, orderId)
+      res.status(204).end()
+    })
+  )
+  // APPROVE file
+  app.post(
+    '/api/orders/:orderId/files/:fileId/approve',
+    asyncHandler(async (req, res) => {
+      const orderId = Number(req.params.orderId)
+      const fileId = Number(req.params.fileId)
+      const user = (req as any).user as { id: number } | undefined
+      await db.run(
+        "UPDATE order_files SET approved = 1, approvedAt = datetime('now'), approvedBy = ? WHERE id = ? AND orderId = ?",
+        user?.id ?? null,
+        fileId,
+        orderId
+      )
+      const row = await db.get<any>(
+        'SELECT id, orderId, filename, originalName, mime, size, uploadedAt, approved, approvedAt, approvedBy FROM order_files WHERE id = ? AND orderId = ?',
+        fileId,
+        orderId
+      )
+      res.json(row)
+    })
+  )
+
+  // GET /api/order-statuses — список статусов для фронта
+  app.get(
+    '/api/order-statuses',
+    asyncHandler(async (_req, res) => {
+      const rows = await db.all<{ id: number; name: string; color: string | null; sort_order: number }>(
+        'SELECT id, name, color, sort_order FROM order_statuses ORDER BY sort_order'
+      )
+      res.json(rows)
+    })
+  )
+
+  // Printers
+  app.get(
+    '/api/printers',
+    asyncHandler(async (_req, res) => {
+      const rows = await db.all<{ id: number; code: string; name: string }>('SELECT id, code, name FROM printers ORDER BY name')
+      res.json(rows)
+    })
+  )
+
+  // Printer counters by date (with previous for delta)
+  app.get(
+    '/api/printers/counters',
+    asyncHandler(async (req, res) => {
+      const date = String((req.query as any)?.date || '').slice(0, 10)
+      if (!date) { res.status(400).json({ message: 'date=YYYY-MM-DD required' }); return }
+      const rows = await db.all<any>(
+        `SELECT p.id, p.code, p.name,
+                pc.value as value,
+                (
+                  SELECT pc2.value FROM printer_counters pc2
+                   WHERE pc2.printer_id = p.id AND pc2.counter_date < ?
+                   ORDER BY pc2.counter_date DESC LIMIT 1
+                ) as prev_value
+           FROM printers p
+      LEFT JOIN printer_counters pc ON pc.printer_id = p.id AND pc.counter_date = ?
+          ORDER BY p.name`,
+        date,
+        date
+      )
+      res.json(rows)
+    })
+  )
+
+  // Daily summary
+  app.get(
+    '/api/reports/daily/:date/summary',
+    asyncHandler(async (req, res) => {
+      const d = String(req.params.date || '').slice(0, 10)
+      if (!d) { res.status(400).json({ message: 'date required' }); return }
+      const ordersCount = await db.get<{ c: number }>(
+        `SELECT COUNT(1) as c FROM orders WHERE substr(createdAt,1,10) = ?`, d
+      )
+      const sums = await db.get<any>(
+        `SELECT 
+            COALESCE(SUM(i.price * i.quantity), 0) as total_revenue,
+            COALESCE(SUM(i.quantity), 0) as items_qty,
+            COALESCE(SUM(i.clicks), 0) as total_clicks,
+            COALESCE(SUM(i.sheets), 0) as total_sheets,
+            COALESCE(SUM(i.waste), 0) as total_waste
+         FROM items i
+         JOIN orders o ON o.id = i.orderId
+        WHERE substr(o.createdAt,1,10) = ?`, d
+      )
+      const prepay = await db.get<any>(
+        `SELECT 
+            COALESCE(SUM(CASE WHEN prepaymentStatus IN ('paid','successful') THEN prepaymentAmount ELSE 0 END),0) as paid_amount,
+            COALESCE(SUM(CASE WHEN prepaymentStatus NOT IN ('paid','successful') THEN prepaymentAmount ELSE 0 END),0) as pending_amount,
+            COALESCE(SUM(prepaymentAmount),0) as total_amount,
+            COALESCE(SUM(CASE WHEN prepaymentStatus IN ('paid','successful') THEN 1 ELSE 0 END),0) as paid_count
+           FROM orders WHERE substr(createdAt,1,10) = ?`, d
+      )
+      const materials = await db.all<any>(
+        `SELECT m.id as materialId, m.name as material_name,
+                SUM(CASE WHEN mm.delta < 0 THEN -mm.delta ELSE 0 END) AS spent
+           FROM material_moves mm
+           JOIN materials m ON m.id = mm.materialId
+          WHERE substr(mm.created_at,1,10) = ?
+          GROUP BY m.id, m.name
+          ORDER BY spent DESC
+          LIMIT 5`, d
+      )
+      res.json({
+        date: d,
+        orders_count: Number((ordersCount as any)?.c || 0),
+        total_revenue: Number(sums?.total_revenue || 0),
+        items_qty: Number(sums?.items_qty || 0),
+        total_clicks: Number(sums?.total_clicks || 0),
+        total_sheets: Number(sums?.total_sheets || 0),
+        total_waste: Number(sums?.total_waste || 0),
+        prepayment: prepay,
+        materials_spent_top: materials
+      })
+    })
+  )
+
+  // Materials low stock and reports
+  app.get(
+    '/api/materials/low-stock',
+    asyncHandler(async (_req, res) => {
+      const rows = await db.all<any>(`SELECT id, name, unit, quantity, min_quantity as min_quantity FROM materials WHERE min_quantity IS NOT NULL AND quantity <= min_quantity ORDER BY name`)
+      res.json(rows)
+    })
+  )
+  app.get(
+    '/api/materials/report/top',
+    asyncHandler(async (req, res) => {
+      const { from, to, limit = 10 } = req.query as any
+      const where: string[] = []
+      const params: any[] = []
+      if (from) { where.push('mm.created_at >= ?'); params.push(String(from)) }
+      if (to) { where.push('mm.created_at <= ?'); params.push(String(to)) }
+      const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : ''
+      const rows = await db.all<any>(
+        `SELECT m.id, m.name, SUM(CASE WHEN mm.delta < 0 THEN -mm.delta ELSE 0 END) AS spent
+           FROM material_moves mm
+           JOIN materials m ON m.id = mm.materialId
+          ${whereSql}
+          GROUP BY m.id, m.name
+          ORDER BY spent DESC
+          LIMIT ?`,
+        ...params,
+        Number(limit)
+      )
+      res.json(rows)
+    })
+  )
+  app.get(
+    '/api/materials/report/forecast',
+    asyncHandler(async (_req, res) => {
+      const rows = await db.all<any>(
+        `SELECT m.id, m.name, m.unit, m.quantity, m.min_quantity,
+                ROUND(m.quantity * 0.5, 2) AS suggested_order
+           FROM materials m
+          WHERE m.min_quantity IS NOT NULL AND m.quantity <= m.min_quantity
+          ORDER BY (m.min_quantity - m.quantity) DESC`
+      )
+      res.json(rows)
+    })
+  )
+
+  // Printer counters submit
+  app.post(
+    '/api/printers/:id/counters',
+    asyncHandler(async (req, res) => {
+      const user = (req as any).user as { id: number; role: string } | undefined
+      if (!user || user.role !== 'admin') { res.status(403).json({ message: 'Forbidden' }); return }
+      const id = Number(req.params.id)
+      const { counter_date, value } = req.body as { counter_date: string; value: number }
+      try {
+        await db.run('INSERT OR REPLACE INTO printer_counters (printer_id, counter_date, value) VALUES (?, ?, ?)', id, counter_date, Number(value))
+      } catch (e) { throw e }
+      const row = await db.get<any>('SELECT id, printer_id, counter_date, value, created_at FROM printer_counters WHERE printer_id = ? AND counter_date = ?', id, counter_date)
+      res.status(201).json(row)
     })
   )
 
@@ -410,26 +822,29 @@ async function main() {
   app.post(
     '/api/materials',
     asyncHandler(async (req, res) => {
+      const user = (req as any).user as { id: number; role: string } | undefined
+      if (!user || user.role !== 'admin') { res.status(403).json({ message: 'Forbidden' }); return }
       const mat = req.body as Material
       try {
         if (mat.id) {
           await db.run(
-            'UPDATE materials SET name = ?, unit = ?, quantity = ? WHERE id = ?',
+            'UPDATE materials SET name = ?, unit = ?, quantity = ?, min_quantity = ? WHERE id = ?',
             mat.name,
             mat.unit,
             mat.quantity,
+            mat.min_quantity ?? null,
             mat.id
           )
         } else {
           await db.run(
-            'INSERT INTO materials (name, unit, quantity) VALUES (?, ?, ?)',
+            'INSERT INTO materials (name, unit, quantity, min_quantity) VALUES (?, ?, ?, ?)',
             mat.name,
             mat.unit,
-            mat.quantity
+            mat.quantity,
+            mat.min_quantity ?? null
           )
         }
       } catch (e: any) {
-        // Обрабатываем конфликт уникальности имени
         if (e && typeof e.message === 'string' && e.message.includes('UNIQUE constraint failed: materials.name')) {
           const err: any = new Error('Материал с таким именем уже существует')
           err.status = 409
@@ -438,9 +853,34 @@ async function main() {
         throw e
       }
       const allMats = await db.all<Material>(
-        'SELECT * FROM materials ORDER BY name'
-      )
+        'SELECT id, name, unit, quantity, min_quantity as min_quantity FROM materials ORDER BY name'
+      ) as any
       res.json(allMats)
+    })
+  )
+
+  // GET /api/materials/moves — история движений с фильтрами
+  app.get(
+    '/api/materials/moves',
+    asyncHandler(async (req, res) => {
+      const { materialId, user_id, orderId, from, to } = req.query as any
+      const where: string[] = []
+      const params: any[] = []
+      if (materialId) { where.push('mm.materialId = ?'); params.push(Number(materialId)) }
+      if (user_id) { where.push('mm.user_id = ?'); params.push(Number(user_id)) }
+      if (orderId) { where.push('mm.orderId = ?'); params.push(Number(orderId)) }
+      if (from) { where.push('mm.created_at >= ?'); params.push(String(from)) }
+      if (to) { where.push('mm.created_at <= ?'); params.push(String(to)) }
+      const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : ''
+      const rows = await db.all<any>(
+        `SELECT mm.id, mm.materialId, m.name as material_name, mm.delta, mm.reason, mm.orderId, mm.user_id, mm.created_at
+           FROM material_moves mm
+           JOIN materials m ON m.id = mm.materialId
+          ${whereSql}
+          ORDER BY mm.created_at DESC, mm.id DESC`,
+        ...params
+      )
+      res.json(rows)
     })
   )
 
@@ -448,8 +888,31 @@ async function main() {
   app.delete(
     '/api/materials/:id',
     asyncHandler(async (req, res) => {
+      const user = (req as any).user as { id: number; role: string } | undefined
+      if (!user || user.role !== 'admin') { res.status(403).json({ message: 'Forbidden' }); return }
       await db.run('DELETE FROM materials WHERE id = ?', Number(req.params.id))
       res.status(204).end()
+    })
+  )
+
+  // POST /api/materials/spend — админское движение материалов (+/-)
+  app.post(
+    '/api/materials/spend',
+    asyncHandler(async (req, res) => {
+      const user = (req as any).user as { id: number; role: string } | undefined
+      if (!user || user.role !== 'admin') { res.status(403).json({ message: 'Forbidden' }); return }
+      const { materialId, delta, reason, orderId } = req.body as { materialId: number; delta: number; reason?: string; orderId?: number }
+      await db.run('BEGIN')
+      try {
+        await db.run('UPDATE materials SET quantity = quantity + ? WHERE id = ?', Number(delta), Number(materialId))
+        await db.run('INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)', materialId, Number(delta), reason || null, orderId || null, user.id)
+        await db.run('COMMIT')
+      } catch (e) {
+        await db.run('ROLLBACK')
+        throw e
+      }
+      const mat = await db.get<Material>('SELECT * FROM materials WHERE id = ?', Number(materialId))
+      res.json(mat)
     })
   )
 
@@ -461,8 +924,9 @@ async function main() {
         name: string
         unit: string
         quantity: number
+        min_quantity: number | null
       }>(
-        `SELECT pm.materialId, pm.qtyPerItem, m.name, m.unit, m.quantity
+        `SELECT pm.materialId, pm.qtyPerItem, m.name, m.unit, m.quantity, m.min_quantity as min_quantity
            FROM product_materials pm
            JOIN materials m ON m.id = pm.materialId
            WHERE pm.presetCategory = ? AND pm.presetDescription = ?`,
@@ -504,6 +968,8 @@ async function main() {
   app.post(
     '/api/product-materials',
     asyncHandler(async (req, res) => {
+      const user = (req as any).user as { id: number; role: string } | undefined
+      if (!user || user.role !== 'admin') { res.status(403).json({ message: 'Forbidden' }); return }
       const {
         presetCategory,
         presetDescription,
@@ -529,6 +995,126 @@ async function main() {
         )
       }
       res.status(204).end()
+    })
+  )
+
+  // PATCH /api/orders/:orderId/items/:itemId — обновление позиции (и перерасчёт материалов при смене количества)
+  app.patch(
+    '/api/orders/:orderId/items/:itemId',
+    asyncHandler(async (req, res) => {
+      const orderId = Number(req.params.orderId)
+      const itemId = Number(req.params.itemId)
+      const body = req.body as Partial<{
+        price: number
+        quantity: number
+        printerId: number | null
+        sides: number
+        sheets: number
+        waste: number
+      }>
+
+      const existing = await db.get<{
+        id: number
+        orderId: number
+        type: string
+        params: string
+        price: number
+        quantity: number
+        printerId: number | null
+        sides: number
+        sheets: number
+        waste: number
+      }>('SELECT id, orderId, type, params, price, quantity, printerId, sides, sheets, waste FROM items WHERE id = ? AND orderId = ?', itemId, orderId)
+      if (!existing) { res.status(404).json({ message: 'Позиция не найдена' }); return }
+
+      const newQuantity = body.quantity != null ? Math.max(1, Number(body.quantity) || 1) : existing.quantity
+      const deltaQty = newQuantity - (existing.quantity ?? 1)
+
+      await db.run('BEGIN')
+      try {
+        if (deltaQty !== 0) {
+          const paramsObj = JSON.parse(existing.params || '{}') as { description?: string }
+          const composition = (await db.all<{
+            materialId: number
+            qtyPerItem: number
+            quantity: number
+          }>(
+            `SELECT pm.materialId, pm.qtyPerItem, m.quantity
+               FROM product_materials pm
+               JOIN materials m ON m.id = pm.materialId
+              WHERE pm.presetCategory = ? AND pm.presetDescription = ?`,
+            existing.type,
+            paramsObj.description || ''
+          )) as unknown as Array<{ materialId: number; qtyPerItem: number; quantity: number }>
+          if (deltaQty > 0) {
+            // Проверяем остатки
+            for (const c of composition) {
+              const need = (c.qtyPerItem || 0) * deltaQty
+              if (c.quantity < need) {
+                const err: any = new Error(`Недостаточно материала ID=${c.materialId}`)
+                err.status = 400
+                throw err
+              }
+            }
+            for (const c of composition) {
+              const need = (c.qtyPerItem || 0) * deltaQty
+              if (need > 0) await db.run('UPDATE materials SET quantity = quantity - ? WHERE id = ?', need, c.materialId)
+              if (need > 0) await db.run('INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)', c.materialId, -need, 'order update qty +', orderId, (req as any).user?.id ?? null)
+            }
+          } else {
+            for (const c of composition) {
+              const back = (c.qtyPerItem || 0) * Math.abs(deltaQty)
+              if (back > 0) await db.run('UPDATE materials SET quantity = quantity + ? WHERE id = ?', back, c.materialId)
+              if (back > 0) await db.run('INSERT INTO material_moves (materialId, delta, reason, orderId, user_id) VALUES (?, ?, ?, ?, ?)', c.materialId, back, 'order update qty -', orderId, (req as any).user?.id ?? null)
+            }
+          }
+        }
+
+        const nextSides = body.sides != null ? Math.max(1, Number(body.sides) || 1) : existing.sides
+        const nextSheets = body.sheets != null ? Math.max(0, Number(body.sheets) || 0) : existing.sheets
+        const clicks = nextSheets * (nextSides * 2)
+
+        await db.run(
+          `UPDATE items SET 
+              ${body.price != null ? 'price = ?,' : ''}
+              ${body.quantity != null ? 'quantity = ?,' : ''}
+              ${body.printerId !== undefined ? 'printerId = ?,' : ''}
+              ${body.sides != null ? 'sides = ?,' : ''}
+              ${body.sheets != null ? 'sheets = ?,' : ''}
+              ${body.waste != null ? 'waste = ?,' : ''}
+              clicks = ?
+           WHERE id = ? AND orderId = ?`,
+          ...([body.price != null ? Number(body.price) : []] as any),
+          ...([body.quantity != null ? newQuantity : []] as any),
+          ...([body.printerId !== undefined ? (body.printerId as any) : []] as any),
+          ...([body.sides != null ? nextSides : []] as any),
+          ...([body.sheets != null ? nextSheets : []] as any),
+          ...([body.waste != null ? Math.max(0, Number(body.waste) || 0) : []] as any),
+          clicks,
+          itemId,
+          orderId
+        )
+
+        await db.run('COMMIT')
+      } catch (e) {
+        await db.run('ROLLBACK')
+        throw e
+      }
+
+      const updated = await db.get<any>('SELECT id, orderId, type, params, price, quantity, printerId, sides, sheets, waste, clicks FROM items WHERE id = ? AND orderId = ?', itemId, orderId)
+      res.json({
+        id: updated.id,
+        orderId: updated.orderId,
+        type: updated.type,
+        params: JSON.parse(updated.params || '{}'),
+        price: updated.price,
+        quantity: updated.quantity,
+        printerId: updated.printerId ?? undefined,
+        sides: updated.sides,
+        sheets: updated.sheets,
+        waste: updated.waste,
+        clicks: updated.clicks
+      })
     })
   )
 
