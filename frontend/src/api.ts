@@ -40,6 +40,8 @@ export const saveMaterial = (mat: Partial<Material>) =>
   api.post<Material[]>('/materials', mat);
 export const deleteMaterial = (id: number) => api.delete(`/materials/${id}`);
 export const spendMaterial = (payload: { materialId: number; delta: number; reason?: string; orderId?: number }) => api.post<Material>('/materials/spend', payload);
+export const getMaterialMoves = (params?: { materialId?: number; orderId?: number; user_id?: number; from?: string; to?: string }) =>
+  api.get('/materials/moves', { params });
 
 export const getProductMaterials = (cat: string, desc: string) =>
   api.get<MaterialRow[]>(`/product-materials/${encodeURIComponent(cat)}/${encodeURIComponent(desc)}`);

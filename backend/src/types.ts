@@ -32,6 +32,7 @@ export interface Material {
   name: string;
   unit: string;
   quantity: number;
+  min_quantity?: number;
 }
 
 export interface ProductMaterial {

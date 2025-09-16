@@ -7,6 +7,7 @@ interface FormState {
   name: string;
   unit: string;
   quantity: number;
+  min_quantity?: number;
 }
 
 interface Props {
@@ -37,14 +38,15 @@ export default function ManageMaterialsModal({ onClose }: Props) {
       <h3>Materials Stock</h3>
       <table>
         <thead>
-          <tr><th>Name</th><th>Unit</th><th>Qty</th><th/></tr>
+          <tr><th>Name</th><th>Unit</th><th>Qty</th><th>Min</th><th/></tr>
         </thead>
         <tbody>
           {materials.map(m => (
             <tr key={m.id}>
               <td>{m.name}</td>
               <td>{m.unit}</td>
-              <td>{m.quantity}</td>
+              <td style={{ color: (m.min_quantity != null && m.quantity <= (m.min_quantity||0)) ? '#c00' : undefined }}>{m.quantity}</td>
+              <td>{m.min_quantity ?? ''}</td>
               <td>
                 <button onClick={() => deleteMaterial(m.id).then(load)}>✖</button>
               </td>
@@ -70,6 +72,13 @@ export default function ManageMaterialsModal({ onClose }: Props) {
                 type="number"
                 value={edit.quantity}
                 onChange={e => setEdit(s => ({ ...s, quantity: Number(e.target.value) }))}
+              />
+            </td>
+            <td>
+              <input
+                type="number"
+                value={edit.min_quantity ?? 0}
+                onChange={e => setEdit(s => ({ ...s, min_quantity: Number(e.target.value) }))}
               />
             </td>
             <td>

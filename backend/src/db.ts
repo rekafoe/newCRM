@@ -74,7 +74,8 @@ export async function initDB(): Promise<Database> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       unit TEXT NOT NULL,
-      quantity REAL NOT NULL
+      quantity REAL NOT NULL,
+      min_quantity REAL
     );
     CREATE TABLE IF NOT EXISTS product_materials (
       presetCategory TEXT NOT NULL,
@@ -131,6 +132,7 @@ export async function initDB(): Promise<Database> {
     "ALTER TABLE users ADD COLUMN api_token TEXT",
     "ALTER TABLE users ADD COLUMN password_hash TEXT",
     "ALTER TABLE items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE materials ADD COLUMN min_quantity REAL",
     "ALTER TABLE items ADD COLUMN printerId INTEGER",
     "ALTER TABLE items ADD COLUMN sides INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE items ADD COLUMN sheets INTEGER NOT NULL DEFAULT 0",

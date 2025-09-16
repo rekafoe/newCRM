@@ -552,8 +552,8 @@ async function main() {
     '/api/materials',
     asyncHandler(async (_req, res) => {
       const materials = await db.all<Material>(
-        'SELECT * FROM materials ORDER BY name'
-      )
+        'SELECT id, name, unit, quantity, min_quantity as min_quantity FROM materials ORDER BY name'
+      ) as any
       res.json(materials)
     })
   )
@@ -677,18 +677,20 @@ async function main() {
       try {
         if (mat.id) {
           await db.run(
-            'UPDATE materials SET name = ?, unit = ?, quantity = ? WHERE id = ?',
+            'UPDATE materials SET name = ?, unit = ?, quantity = ?, min_quantity = ? WHERE id = ?',
             mat.name,
             mat.unit,
             mat.quantity,
+            mat.min_quantity ?? null,
             mat.id
           )
         } else {
           await db.run(
-            'INSERT INTO materials (name, unit, quantity) VALUES (?, ?, ?)',
+            'INSERT INTO materials (name, unit, quantity, min_quantity) VALUES (?, ?, ?, ?)',
             mat.name,
             mat.unit,
-            mat.quantity
+            mat.quantity,
+            mat.min_quantity ?? null
           )
         }
       } catch (e: any) {
@@ -700,9 +702,34 @@ async function main() {
         throw e
       }
       const allMats = await db.all<Material>(
-        'SELECT * FROM materials ORDER BY name'
-      )
+        'SELECT id, name, unit, quantity, min_quantity as min_quantity FROM materials ORDER BY name'
+      ) as any
       res.json(allMats)
+    })
+  )
+
+  // GET /api/materials/moves — история движений с фильтрами
+  app.get(
+    '/api/materials/moves',
+    asyncHandler(async (req, res) => {
+      const { materialId, user_id, orderId, from, to } = req.query as any
+      const where: string[] = []
+      const params: any[] = []
+      if (materialId) { where.push('mm.materialId = ?'); params.push(Number(materialId)) }
+      if (user_id) { where.push('mm.user_id = ?'); params.push(Number(user_id)) }
+      if (orderId) { where.push('mm.orderId = ?'); params.push(Number(orderId)) }
+      if (from) { where.push('mm.created_at >= ?'); params.push(String(from)) }
+      if (to) { where.push('mm.created_at <= ?'); params.push(String(to)) }
+      const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : ''
+      const rows = await db.all<any>(
+        `SELECT mm.id, mm.materialId, m.name as material_name, mm.delta, mm.reason, mm.orderId, mm.user_id, mm.created_at
+           FROM material_moves mm
+           JOIN materials m ON m.id = mm.materialId
+          ${whereSql}
+          ORDER BY mm.created_at DESC, mm.id DESC`,
+        ...params
+      )
+      res.json(rows)
     })
   )
 
@@ -746,8 +773,9 @@ async function main() {
         name: string
         unit: string
         quantity: number
+        min_quantity: number | null
       }>(
-        `SELECT pm.materialId, pm.qtyPerItem, m.name, m.unit, m.quantity
+        `SELECT pm.materialId, pm.qtyPerItem, m.name, m.unit, m.quantity, m.min_quantity as min_quantity
            FROM product_materials pm
            JOIN materials m ON m.id = pm.materialId
            WHERE pm.presetCategory = ? AND pm.presetDescription = ?`,

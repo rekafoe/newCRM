@@ -30,7 +30,7 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
     if (product && category) {
       getProductMaterials(category.category, product.description).then(res => {
         setRequired(res.data);
-        setOk(res.data.every(r => r.quantity >= r.qtyPerItem * Math.max(1, quantity)));
+        setOk(res.data.every(r => r.quantity - (r as any).min_quantity >= r.qtyPerItem * Math.max(1, quantity)));
       });
     }
   }, [product, category, quantity]);
@@ -153,6 +153,7 @@ export default function AddItemModal({ order, onSave, onClose }: Props) {
 
       <button onClick={onClose}>Отмена</button>
       <button onClick={handleSave} disabled={!product || !ok}>Сохранить</button>
+      {!ok && <div style={{ color: 'red', marginTop: 8 }}>Недостаточно материалов с учётом минимального остатка</div>}
     </div>
   );
 }
