@@ -32,6 +32,8 @@ export const addOrderItem = (id: number, item: Omit<Item, 'id'>) =>
 export const deleteOrder = (id: number) => api.delete(`/orders/${id}`);
 export const deleteOrderItem = (orderId: number, itemId: number) =>
   api.delete(`/orders/${orderId}/items/${itemId}`);
+export const updateOrderItem = (orderId: number, itemId: number, data: Partial<Item>) =>
+  api.patch(`/orders/${orderId}/items/${itemId}`, data);
 
 export const getMaterials = () => api.get<Material[]>('/materials');
 export const saveMaterial = (mat: Partial<Material>) =>

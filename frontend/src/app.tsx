@@ -7,6 +7,7 @@ import {
   deleteOrder,
   deleteOrderItem,
   updateOrderStatus,
+  updateOrderItem,
 } from "./api";
 import { Link } from 'react-router-dom';
 import AddItemModal from "./components/AddItemModal";
@@ -127,7 +128,9 @@ export default function App() {
                     <option key={s.id} value={s.sort_order}>{s.name}</option>
                   ))}
                 </select>
-                <button onClick={() => setShowPresets(true)}>Пресеты</button>
+                {typeof window !== 'undefined' && localStorage.getItem('crmRole') === 'admin' && (
+                  <button onClick={() => setShowPresets(true)}>Пресеты</button>
+                )}
                 <button onClick={() => setShowAddItem(true)}>+ Позиция</button>
                 <button onClick={() => { setAuthToken(undefined); location.href = '/login'; }}>Выйти</button>
               </div>
@@ -147,31 +150,71 @@ export default function App() {
                 <div className="item">Пока нет позиций</div>
               )}
 
-              {selectedOrder.items.map((it) => (
-                <div className="item" key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <strong>{it.type}</strong> — {it.params.description} —{" "}
-                    {it.price.toLocaleString()} BYN × {it.quantity ?? 1}
-                    {it.printerId ? ` — принтер #${it.printerId}` : ''}
-                    {typeof it.sides !== 'undefined' ? ` — ${it.sides} стор.` : ''}
-                    {typeof it.sheets !== 'undefined' ? ` — листы: ${it.sheets}` : ''}
-                    {typeof it.waste !== 'undefined' ? ` — брак: ${it.waste}` : ''}
+              {selectedOrder.items.map((it) => {
+                const [editing, setEditing] = React.useState(false);
+                const [qty, setQty] = React.useState(it.quantity ?? 1);
+                const [price, setPrice] = React.useState(it.price);
+                const [sides, setSides] = React.useState(it.sides ?? 1);
+                const [sheets, setSheets] = React.useState(it.sheets ?? 0);
+                const [waste, setWaste] = React.useState(it.waste ?? 0);
+                return (
+                  <div className="item" key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <strong>{it.type}</strong> — {it.params.description} —{" "}
+                      {editing ? (
+                        <>
+                          <input type="number" value={price} onChange={e => setPrice(Number(e.target.value))} style={{ width: 100 }} /> BYN ×
+                          <input type="number" value={qty} min={1} onChange={e => setQty(Math.max(1, Number(e.target.value) || 1))} style={{ width: 60, marginLeft: 6 }} />
+                          <select value={sides} onChange={e => setSides(Number(e.target.value))} style={{ marginLeft: 6 }}>
+                            <option value={1}>1 стор.</option>
+                            <option value={2}>2 стор.</option>
+                          </select>
+                          <input type="number" value={sheets} min={0} onChange={e => setSheets(Math.max(0, Number(e.target.value) || 0))} style={{ width: 80, marginLeft: 6 }} placeholder="листы" />
+                          <input type="number" value={waste} min={0} onChange={e => setWaste(Math.max(0, Number(e.target.value) || 0))} style={{ width: 80, marginLeft: 6 }} placeholder="брак" />
+                        </>
+                      ) : (
+                        <>
+                          {it.price.toLocaleString()} BYN × {it.quantity ?? 1}
+                          {typeof it.sides !== 'undefined' ? ` — ${it.sides} стор.` : ''}
+                          {typeof it.sheets !== 'undefined' ? ` — листы: ${it.sheets}` : ''}
+                          {typeof it.waste !== 'undefined' ? ` — брак: ${it.waste}` : ''}
+                        </>
+                      )}
+                    </div>
+                    {editing ? (
+                      <>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await updateOrderItem(selectedOrder.id, it.id, { price, quantity: qty, sides, sheets, waste });
+                              setEditing(false);
+                              loadOrders();
+                            } catch { alert('Не удалось сохранить'); }
+                          }}
+                        >Сохранить</button>
+                        <button className="btn-danger" onClick={() => setEditing(false)}>Отмена</button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => setEditing(true)}>Редактировать</button>
+                        <button
+                          className="btn-danger"
+                          onClick={async () => {
+                            try {
+                              await deleteOrderItem(selectedOrder.id, it.id);
+                              loadOrders();
+                            } catch (e: any) {
+                              alert('Не удалось удалить позицию. Возможно нужна авторизация.');
+                            }
+                          }}
+                        >
+                          Удалить
+                        </button>
+                      </>
+                    )}
                   </div>
-                  <button
-                    className="btn-danger"
-                    onClick={async () => {
-                      try {
-                        await deleteOrderItem(selectedOrder.id, it.id);
-                        loadOrders();
-                      } catch (e: any) {
-                        alert('Не удалось удалить позицию. Возможно нужна авторизация.');
-                      }
-                    }}
-                  >
-                    Удалить
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* ====== ФАЙЛЫ ЗАКАЗА ====== */}

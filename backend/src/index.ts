@@ -789,6 +789,8 @@ async function main() {
   app.post(
     '/api/product-materials',
     asyncHandler(async (req, res) => {
+      const user = (req as any).user as { id: number; role: string } | undefined
+      if (!user || user.role !== 'admin') { res.status(403).json({ message: 'Forbidden' }); return }
       const {
         presetCategory,
         presetDescription,
@@ -814,6 +816,124 @@ async function main() {
         )
       }
       res.status(204).end()
+    })
+  )
+
+  // PATCH /api/orders/:orderId/items/:itemId — обновление позиции (и перерасчёт материалов при смене количества)
+  app.patch(
+    '/api/orders/:orderId/items/:itemId',
+    asyncHandler(async (req, res) => {
+      const orderId = Number(req.params.orderId)
+      const itemId = Number(req.params.itemId)
+      const body = req.body as Partial<{
+        price: number
+        quantity: number
+        printerId: number | null
+        sides: number
+        sheets: number
+        waste: number
+      }>
+
+      const existing = await db.get<{
+        id: number
+        orderId: number
+        type: string
+        params: string
+        price: number
+        quantity: number
+        printerId: number | null
+        sides: number
+        sheets: number
+        waste: number
+      }>('SELECT id, orderId, type, params, price, quantity, printerId, sides, sheets, waste FROM items WHERE id = ? AND orderId = ?', itemId, orderId)
+      if (!existing) { res.status(404).json({ message: 'Позиция не найдена' }); return }
+
+      const newQuantity = body.quantity != null ? Math.max(1, Number(body.quantity) || 1) : existing.quantity
+      const deltaQty = newQuantity - (existing.quantity ?? 1)
+
+      await db.run('BEGIN')
+      try {
+        if (deltaQty !== 0) {
+          const paramsObj = JSON.parse(existing.params || '{}') as { description?: string }
+          const composition = (await db.all<{
+            materialId: number
+            qtyPerItem: number
+            quantity: number
+          }>(
+            `SELECT pm.materialId, pm.qtyPerItem, m.quantity
+               FROM product_materials pm
+               JOIN materials m ON m.id = pm.materialId
+              WHERE pm.presetCategory = ? AND pm.presetDescription = ?`,
+            existing.type,
+            paramsObj.description || ''
+          )) as unknown as Array<{ materialId: number; qtyPerItem: number; quantity: number }>
+          if (deltaQty > 0) {
+            // Проверяем остатки
+            for (const c of composition) {
+              const need = (c.qtyPerItem || 0) * deltaQty
+              if (c.quantity < need) {
+                const err: any = new Error(`Недостаточно материала ID=${c.materialId}`)
+                err.status = 400
+                throw err
+              }
+            }
+            for (const c of composition) {
+              const need = (c.qtyPerItem || 0) * deltaQty
+              if (need > 0) await db.run('UPDATE materials SET quantity = quantity - ? WHERE id = ?', need, c.materialId)
+            }
+          } else {
+            for (const c of composition) {
+              const back = (c.qtyPerItem || 0) * Math.abs(deltaQty)
+              if (back > 0) await db.run('UPDATE materials SET quantity = quantity + ? WHERE id = ?', back, c.materialId)
+            }
+          }
+        }
+
+        const nextSides = body.sides != null ? Math.max(1, Number(body.sides) || 1) : existing.sides
+        const nextSheets = body.sheets != null ? Math.max(0, Number(body.sheets) || 0) : existing.sheets
+        const clicks = nextSheets * (nextSides * 2)
+
+        await db.run(
+          `UPDATE items SET 
+              ${body.price != null ? 'price = ?,' : ''}
+              ${body.quantity != null ? 'quantity = ?,' : ''}
+              ${body.printerId !== undefined ? 'printerId = ?,' : ''}
+              ${body.sides != null ? 'sides = ?,' : ''}
+              ${body.sheets != null ? 'sheets = ?,' : ''}
+              ${body.waste != null ? 'waste = ?,' : ''}
+              clicks = ?
+           WHERE id = ? AND orderId = ?`,
+          ...([body.price != null ? Number(body.price) : []] as any),
+          ...([body.quantity != null ? newQuantity : []] as any),
+          ...([body.printerId !== undefined ? (body.printerId as any) : []] as any),
+          ...([body.sides != null ? nextSides : []] as any),
+          ...([body.sheets != null ? nextSheets : []] as any),
+          ...([body.waste != null ? Math.max(0, Number(body.waste) || 0) : []] as any),
+          clicks,
+          itemId,
+          orderId
+        )
+
+        await db.run('COMMIT')
+      } catch (e) {
+        await db.run('ROLLBACK')
+        throw e
+      }
+
+      const updated = await db.get<any>('SELECT id, orderId, type, params, price, quantity, printerId, sides, sheets, waste, clicks FROM items WHERE id = ? AND orderId = ?', itemId, orderId)
+      res.json({
+        id: updated.id,
+        orderId: updated.orderId,
+        type: updated.type,
+        params: JSON.parse(updated.params || '{}'),
+        price: updated.price,
+        quantity: updated.quantity,
+        printerId: updated.printerId ?? undefined,
+        sides: updated.sides,
+        sheets: updated.sheets,
+        waste: updated.waste,
+        clicks: updated.clicks
+      })
     })
   )
 

@@ -13,6 +13,7 @@ type NewItemForm = { desc: string; price: string };
 type NewExtraForm = { name: string; price: string; type: 'checkbox' | 'number'; unit: string };
 
 export default function ManagePresetsModal({ onClose, onSave }: Props) {
+  const isAdmin = typeof window !== 'undefined' && localStorage.getItem('crmRole') === 'admin';
   // Инициализируем из localStorage или дефолтными
   const [presets, setPresets] = useState<PresetCategory[]>(() => {
     const stored = localStorage.getItem('crmPresets');
@@ -32,12 +33,14 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
 
   // Сохранить всё в localStorage и закрыть
   function handleSaveAll() {
+    if (!isAdmin) { alert('Недостаточно прав'); return; }
     localStorage.setItem('crmPresets', JSON.stringify(presets));
     onSave();
   }
 
   // Добавить новую категорию
   function addCategory() {
+    if (!isAdmin) { alert('Недостаточно прав'); return; }
     setPresets([
       ...presets,
       { category: '', color: '#000000', items: [], extras: [] }
@@ -46,6 +49,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
 
   // Удалить категорию
   function removeCategory(idx: number) {
+    if (!isAdmin) { alert('Недостаточно прав'); return; }
     setPresets(presets.filter((_, i) => i !== idx));
   }
 
@@ -55,6 +59,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
     field: keyof Omit<PresetCategory, 'items' | 'extras'>,
     value: string
   ) {
+    if (!isAdmin) { alert('Недостаточно прав'); return; }
     const arr = [...presets];
     (arr[idx] as any)[field] = value;
     setPresets(arr);
@@ -62,6 +67,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
 
   // Items
   function addItem(idx: number) {
+    if (!isAdmin) { alert('Недостаточно прав'); return; }
     const form = newItem[idx];
     if (!form || !form.desc) return;
     const arr = [...presets];
@@ -72,6 +78,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
   }
 
   function removeItem(catIdx: number, itemIdx: number) {
+    if (!isAdmin) { alert('Недостаточно прав'); return; }
     const arr = [...presets];
     arr[catIdx].items = arr[catIdx].items.filter((_, i) => i !== itemIdx);
     setPresets(arr);
@@ -83,6 +90,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
     field: keyof PresetItem,
     value: string
   ) {
+    if (!isAdmin) { alert('Недостаточно прав'); return; }
     const arr = [...presets];
     const item = { ...arr[catIdx].items[itemIdx], [field]: field === 'price' ? Number(value) : value };
     arr[catIdx].items[itemIdx] = item;
@@ -91,6 +99,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
 
   // Extras
   function addExtra(idx: number) {
+    if (!isAdmin) { alert('Недостаточно прав'); return; }
     const form = newExtra[idx];
     if (!form || !form.name) return;
     const arr = [...presets];
@@ -106,6 +115,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
   }
 
   function removeExtra(catIdx: number, extraIdx: number) {
+    if (!isAdmin) { alert('Недостаточно прав'); return; }
     const arr = [...presets];
     arr[catIdx].extras = arr[catIdx].extras.filter((_, i) => i !== extraIdx);
     setPresets(arr);
@@ -117,6 +127,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
     field: keyof PresetExtra,
     value: string
   ) {
+    if (!isAdmin) { alert('Недостаточно прав'); return; }
     const arr = [...presets];
     const extra = { ...arr[catIdx].extras[extraIdx], [field]: field === 'price' ? Number(value) : value };
     // Если сменили type на 'checkbox', очищаем unit
@@ -130,7 +141,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
   return (
     <div className="modal">
       <h3>Manage Presets</h3>
-      <button onClick={addCategory}>➕ Add Category</button>
+      <button onClick={addCategory} disabled={!isAdmin}>➕ Add Category</button>
 
       {presets.map((cat, idx) => (
         <div key={idx} style={{ border: `2px solid ${cat.color}`, padding: 8, margin: '8px 0' }}>
@@ -146,7 +157,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
               value={cat.color}
               onChange={e => updateCategoryField(idx, 'color', e.target.value)}
             />
-            <button onClick={() => removeCategory(idx)}>🗑 Delete Category</button>
+            <button onClick={() => removeCategory(idx)} disabled={!isAdmin}>🗑 Delete Category</button>
           </div>
 
           {/* Items */}
@@ -184,7 +195,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
                   [idx]: { ...(newItem[idx] || { desc: '', price: '' }), price: e.target.value }
                 })}
               />
-              <button onClick={() => addItem(idx)}>➕ Add Item</button>
+              <button onClick={() => addItem(idx)} disabled={!isAdmin}>➕ Add Item</button>
             </div>
           </div>
 
@@ -216,7 +227,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
                     onChange={e => updateExtraField(idx, i, 'unit', e.target.value)}
                   />
                 )}
-                <button onClick={() => removeExtra(idx, i)}>✖</button>
+                <button onClick={() => removeExtra(idx, i)} disabled={!isAdmin}>✖</button>
               </div>
             ))}
             <div>
@@ -257,7 +268,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
                   })}
                 />
               )}
-              <button onClick={() => addExtra(idx)}>➕ Add Extra</button>
+              <button onClick={() => addExtra(idx)} disabled={!isAdmin}>➕ Add Extra</button>
             </div>
           </div>
         </div>
@@ -265,7 +276,7 @@ export default function ManagePresetsModal({ onClose, onSave }: Props) {
 
       <div style={{ marginTop: 16 }}>
         <button onClick={onClose}>Cancel</button>
-        <button onClick={handleSaveAll}>Save All</button>
+        <button onClick={handleSaveAll} disabled={!isAdmin}>Save All</button>
       </div>
     </div>
   );

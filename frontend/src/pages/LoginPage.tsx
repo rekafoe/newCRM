@@ -15,6 +15,7 @@ export default function LoginPage() {
     try {
       const res = await axios.post('/api/auth/login', { email, password });
       setAuthToken(res.data.token);
+      localStorage.setItem('crmRole', res.data.role || '');
       navigate('/', { replace: true });
     } catch (e: any) {
       setError('Неверный email или пароль');
