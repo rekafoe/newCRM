@@ -6,6 +6,7 @@ import {
   createOrder,
   deleteOrder,
   deleteOrderItem,
+  updateOrderStatus,
 } from "./api";
 import { Link } from 'react-router-dom';
 import AddItemModal from "./components/AddItemModal";
@@ -96,6 +97,24 @@ export default function App() {
             <div className="detail-header">
               <h2>{selectedOrder.number}</h2>
               <div className="detail-actions">
+                {/* Управление статусом заказа */}
+                <select
+                  value={String(Math.min(Math.max(Number(selectedOrder.status), 1), 5))}
+                  onChange={async (e) => {
+                    const newStatus = Number(e.target.value);
+                    try {
+                      await updateOrderStatus(selectedOrder.id, newStatus);
+                      loadOrders();
+                    } catch (err) {
+                      alert('Не удалось обновить статус. Возможно нужна авторизация.');
+                    }
+                  }}
+                  style={{ marginRight: 8 }}
+                >
+                  {(['Новый','В производстве','Готов к отправке','Отправлен','Завершён'] as OrderStatus[]).map((s, i) => (
+                    <option key={s} value={i + 1}>{s}</option>
+                  ))}
+                </select>
                 <button onClick={() => setShowPresets(true)}>Пресеты</button>
                 <button onClick={() => setShowAddItem(true)}>+ Позиция</button>
                 <button onClick={() => { setAuthToken(undefined); location.href = '/login'; }}>Выйти</button>

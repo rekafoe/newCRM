@@ -10,6 +10,14 @@ export interface Order {
   number: string;
   status: number;
   createdAt: string;
+  // Optional customer and prepayment fields synced with backend
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  prepaymentAmount?: number;
+  prepaymentStatus?: string;
+  paymentUrl?: string;
+  paymentId?: string;
   items: Item[];
 }
 
