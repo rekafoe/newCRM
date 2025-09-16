@@ -64,12 +64,12 @@ export const DailyReportPage: React.FC = () => {
           <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} />
           <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} />
           <button onClick={async () => {
-            const params = new URLSearchParams();
-            if (filterUserId) params.set('user_id', String(filterUserId));
-            if (fromDate) params.set('from', fromDate);
-            if (toDate) params.set('to', toDate);
-            const res = await fetch('/api/daily-reports' + (params.toString() ? `?${params}` : ''));
-            const data = await res.json();
+            const res = await getDailyReports({
+              user_id: filterUserId || undefined,
+              from: fromDate || undefined,
+              to: toDate || undefined
+            });
+            const data = res.data;
             setHistory(data);
             if (data.length) setSelectedDate(data[0].report_date);
           }}>Фильтр</button>

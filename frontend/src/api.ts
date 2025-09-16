@@ -45,8 +45,8 @@ export const saveProductMaterials = (cfg: {
   presetDescription: string;
   materials: { materialId: number; qtyPerItem: number }[];
 }) => api.post('/product-materials', cfg);
-export const getDailyReports = () =>
-  api.get<DailyReport[]>('/daily-reports');
+export const getDailyReports = (params?: { user_id?: number | ''; from?: string; to?: string }) =>
+  api.get<DailyReport[]>('/daily-reports', { params });
 
 export const getDailyReportByDate = (date: string) =>
   api.get<DailyReport>(`/daily/${date}`);
