@@ -681,6 +681,82 @@ async function main() {
     })
   )
 
+  // Printer counters by date (with previous for delta)
+  app.get(
+    '/api/printers/counters',
+    asyncHandler(async (req, res) => {
+      const date = String((req.query as any)?.date || '').slice(0, 10)
+      if (!date) { res.status(400).json({ message: 'date=YYYY-MM-DD required' }); return }
+      const rows = await db.all<any>(
+        `SELECT p.id, p.code, p.name,
+                pc.value as value,
+                (
+                  SELECT pc2.value FROM printer_counters pc2
+                   WHERE pc2.printer_id = p.id AND pc2.counter_date < ?
+                   ORDER BY pc2.counter_date DESC LIMIT 1
+                ) as prev_value
+           FROM printers p
+      LEFT JOIN printer_counters pc ON pc.printer_id = p.id AND pc.counter_date = ?
+          ORDER BY p.name`,
+        date,
+        date
+      )
+      res.json(rows)
+    })
+  )
+
+  // Daily summary
+  app.get(
+    '/api/reports/daily/:date/summary',
+    asyncHandler(async (req, res) => {
+      const d = String(req.params.date || '').slice(0, 10)
+      if (!d) { res.status(400).json({ message: 'date required' }); return }
+      const ordersCount = await db.get<{ c: number }>(
+        `SELECT COUNT(1) as c FROM orders WHERE substr(createdAt,1,10) = ?`, d
+      )
+      const sums = await db.get<any>(
+        `SELECT 
+            COALESCE(SUM(i.price * i.quantity), 0) as total_revenue,
+            COALESCE(SUM(i.quantity), 0) as items_qty,
+            COALESCE(SUM(i.clicks), 0) as total_clicks,
+            COALESCE(SUM(i.sheets), 0) as total_sheets,
+            COALESCE(SUM(i.waste), 0) as total_waste
+         FROM items i
+         JOIN orders o ON o.id = i.orderId
+        WHERE substr(o.createdAt,1,10) = ?`, d
+      )
+      const prepay = await db.get<any>(
+        `SELECT 
+            COALESCE(SUM(CASE WHEN prepaymentStatus IN ('paid','successful') THEN prepaymentAmount ELSE 0 END),0) as paid_amount,
+            COALESCE(SUM(CASE WHEN prepaymentStatus NOT IN ('paid','successful') THEN prepaymentAmount ELSE 0 END),0) as pending_amount,
+            COALESCE(SUM(prepaymentAmount),0) as total_amount,
+            COALESCE(SUM(CASE WHEN prepaymentStatus IN ('paid','successful') THEN 1 ELSE 0 END),0) as paid_count
+           FROM orders WHERE substr(createdAt,1,10) = ?`, d
+      )
+      const materials = await db.all<any>(
+        `SELECT m.id as materialId, m.name as material_name,
+                SUM(CASE WHEN mm.delta < 0 THEN -mm.delta ELSE 0 END) AS spent
+           FROM material_moves mm
+           JOIN materials m ON m.id = mm.materialId
+          WHERE substr(mm.created_at,1,10) = ?
+          GROUP BY m.id, m.name
+          ORDER BY spent DESC
+          LIMIT 5`, d
+      )
+      res.json({
+        date: d,
+        orders_count: Number((ordersCount as any)?.c || 0),
+        total_revenue: Number(sums?.total_revenue || 0),
+        items_qty: Number(sums?.items_qty || 0),
+        total_clicks: Number(sums?.total_clicks || 0),
+        total_sheets: Number(sums?.total_sheets || 0),
+        total_waste: Number(sums?.total_waste || 0),
+        prepayment: prepay,
+        materials_spent_top: materials
+      })
+    })
+  )
+
   // Materials low stock and reports
   app.get(
     '/api/materials/low-stock',

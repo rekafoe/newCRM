@@ -87,3 +87,5 @@ export const createPrepaymentLink = (orderId: number, amount?: number) => api.po
 // Printers
 export const getPrinters = () => api.get<Printer[]>('/printers');
 export const submitPrinterCounter = (printerId: number, data: { counter_date: string; value: number }) => api.post(`/printers/${printerId}/counters`, data);
+export const getPrinterCountersByDate = (date: string) => api.get(`/printers/counters`, { params: { date } });
+export const getDailySummary = (date: string) => api.get(`/reports/daily/${date}/summary`);

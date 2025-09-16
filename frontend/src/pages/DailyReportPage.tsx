@@ -1,6 +1,6 @@
 // frontend/src/pages/DailyReportPage.tsx
 import React, { useEffect, useState } from 'react';
-import { getDailyReports, getDailyReportByDate, updateDailyReport, createDailyReport, getUsers, getPrinters, submitPrinterCounter } from '../api';
+import { getDailyReports, getDailyReportByDate, updateDailyReport, createDailyReport, getUsers, getPrinters, submitPrinterCounter, getPrinterCountersByDate, getDailySummary } from '../api';
 import { DailyReport } from '../types';
 import EditModal from '../components/EditReportModal';
 
@@ -17,6 +17,8 @@ export const DailyReportPage: React.FC = () => {
   const [printers, setPrinters] = useState<{ id: number; code: string; name: string }[]>([]);
   const [counterDate, setCounterDate] = useState<string>(() => new Date().toISOString().slice(0,10));
   const [counters, setCounters] = useState<Record<number, string>>({});
+  const [printerCounters, setPrinterCounters] = useState<any[]>([]);
+  const [summary, setSummary] = useState<any | null>(null);
 
   useEffect(() => {
     getUsers().then(r => setUsers(r.data));
@@ -37,6 +39,8 @@ export const DailyReportPage: React.FC = () => {
       getDailyReportByDate(selectedDate)
         .then(res => setReport(res.data))
         .catch(() => setReport(null));
+      getPrinterCountersByDate(selectedDate).then(r => setPrinterCounters(r.data as any[]));
+      getDailySummary(selectedDate).then(r => setSummary(r.data as any));
     }
   }, [selectedDate]);
 
@@ -105,6 +109,13 @@ export const DailyReportPage: React.FC = () => {
               Выручка:{' '}
               {report.total_revenue.toLocaleString('ru-RU')} BYN
             </p>
+            {summary && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, margin: '8px 0' }}>
+                <div className="order-total"><div className="order-total__line"><span>Позиции</span><span>{summary.items_qty}</span></div><div className="order-total__line"><span>Клики</span><span>{summary.total_clicks}</span></div></div>
+                <div className="order-total"><div className="order-total__line"><span>Листы</span><span>{summary.total_sheets}</span></div><div className="order-total__line"><span>Брак</span><span>{summary.total_waste}</span></div></div>
+                <div className="order-total"><div className="order-total__line"><span>Предоплаты (оплачено)</span><span>{(summary.prepayment?.paid_amount||0).toLocaleString('ru-RU')} BYN</span></div><div className="order-total__line"><span>Ожидает</span><span>{(summary.prepayment?.pending_amount||0).toLocaleString('ru-RU')} BYN</span></div></div>
+              </div>
+            )}
             <button onClick={() => setModalOpen(true)}>
               Редактировать
             </button>
@@ -116,24 +127,30 @@ export const DailyReportPage: React.FC = () => {
                 <span>Дата:</span>
                 <input type="date" value={counterDate} onChange={e => setCounterDate(e.target.value)} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px 100px', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px 150px 100px', gap: 8, alignItems: 'center' }}>
                 <div style={{ fontWeight: 600 }}>Принтер</div>
+                <div style={{ fontWeight: 600 }}>Предыдущее</div>
                 <div style={{ fontWeight: 600 }}>Показание</div>
                 <div />
                 {printers.map(p => (
                   <React.Fragment key={p.id}>
                     <div>{p.name}</div>
+                    <div>{printerCounters.find(pc => pc.id === p.id)?.prev_value ?? '—'}</div>
                     <input type="number" value={counters[p.id] || ''} onChange={e => setCounters(s => ({ ...s, [p.id]: e.target.value }))} />
                     <button onClick={async () => {
                       if (!counters[p.id]) return;
                       try {
                         await submitPrinterCounter(p.id, { counter_date: counterDate, value: Number(counters[p.id]) });
                         alert('Сохранено');
+                        getPrinterCountersByDate(counterDate).then(r => setPrinterCounters(r.data as any[]));
                       } catch { alert('Не удалось сохранить'); }
                     }}>Сохранить</button>
                   </React.Fragment>
                 ))}
               </div>
+              {printerCounters.some(pc => !pc.value) && (
+                <div style={{ marginTop: 8, color: '#b45309' }}>Внимание: не по всем принтерам внесены показания за выбранную дату.</div>
+              )}
             </div>
           </>
         ) : (
