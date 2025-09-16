@@ -72,3 +72,6 @@ export const uploadOrderFile = (orderId: number, file: File) => {
 };
 export const deleteOrderFile = (orderId: number, fileId: number) => api.delete(`/orders/${orderId}/files/${fileId}`);
 export const approveOrderFile = (orderId: number, fileId: number) => api.post<OrderFile>(`/orders/${orderId}/files/${fileId}/approve`, {});
+
+// Payments / Prepayment
+export const createPrepaymentLink = (orderId: number, amount?: number) => api.post<Order>(`/orders/${orderId}/prepay`, amount != null ? { amount } : {});

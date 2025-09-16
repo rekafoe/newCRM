@@ -15,7 +15,7 @@ import ManagePresetsModal from "./components/ManagePresetsModal";
 
 import { ProgressBar, OrderStatus } from "./components/order/ProgressBar";
 import { OrderTotal } from "./components/order/OrderTotal";
-import { setAuthToken, getOrderStatuses, listOrderFiles, uploadOrderFile, deleteOrderFile, approveOrderFile } from './api';
+import { setAuthToken, getOrderStatuses, listOrderFiles, uploadOrderFile, deleteOrderFile, approveOrderFile, createPrepaymentLink } from './api';
 import type { OrderFile } from './types';
 
 
@@ -27,6 +27,7 @@ export default function App() {
   const [showPresets, setShowPresets] = useState(false);
   const [statuses, setStatuses] = useState<Array<{ id: number; name: string; color?: string; sort_order: number }>>([]);
   const [files, setFiles] = useState<OrderFile[]>([]);
+  const [prepayAmount, setPrepayAmount] = useState<string>('');
 
   useEffect(() => {
     loadOrders();
@@ -210,6 +211,37 @@ export default function App() {
                     }}>Удалить</button>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            {/* ====== ПРЕДОПЛАТА ====== */}
+            <div className="order-total" style={{ marginTop: 8 }}>
+              <strong>Предоплата</strong>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                <input
+                  type="number"
+                  placeholder="Сумма BYN"
+                  value={prepayAmount}
+                  onChange={e => setPrepayAmount(e.target.value)}
+                  style={{ maxWidth: 160 }}
+                />
+                <button onClick={async () => {
+                  try {
+                    const amt = prepayAmount ? Number(prepayAmount) : undefined;
+                    const res = await createPrepaymentLink(selectedOrder.id, amt);
+                    await loadOrders();
+                    setPrepayAmount(String(res.data.prepaymentAmount ?? ''));
+                  } catch { alert('Не удалось создать ссылку'); }
+                }}>Сформировать ссылку</button>
+                {selectedOrder.paymentUrl && (
+                  <>
+                    <a href={selectedOrder.paymentUrl} target="_blank" rel="noreferrer">Перейти к оплате</a>
+                    <button onClick={() => navigator.clipboard.writeText(selectedOrder.paymentUrl || '')}>Копировать</button>
+                  </>
+                )}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 14, color: '#555' }}>
+                Статус: {selectedOrder.prepaymentStatus || '—'}{selectedOrder.paymentId ? ` (ID: ${selectedOrder.paymentId})` : ''}
               </div>
             </div>
 
