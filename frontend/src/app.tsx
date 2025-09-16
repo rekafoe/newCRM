@@ -15,7 +15,7 @@ import ManagePresetsModal from "./components/ManagePresetsModal";
 
 import { ProgressBar, OrderStatus } from "./components/order/ProgressBar";
 import { OrderTotal } from "./components/order/OrderTotal";
-import { setAuthToken } from './api';
+import { setAuthToken, getOrderStatuses } from './api';
 
 
 export default function App() {
@@ -24,9 +24,11 @@ export default function App() {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
   const [showPresets, setShowPresets] = useState(false);
+  const [statuses, setStatuses] = useState<Array<{ id: number; name: string; color?: string; sort_order: number }>>([]);
 
   useEffect(() => {
     loadOrders();
+    getOrderStatuses().then(r => setStatuses(r.data));
   }, []);
 
   function loadOrders() {
@@ -99,7 +101,7 @@ export default function App() {
               <div className="detail-actions">
                 {/* Управление статусом заказа */}
                 <select
-                  value={String(Math.min(Math.max(Number(selectedOrder.status), 1), 5))}
+                  value={String(selectedOrder.status)}
                   onChange={async (e) => {
                     const newStatus = Number(e.target.value);
                     try {
@@ -111,8 +113,8 @@ export default function App() {
                   }}
                   style={{ marginRight: 8 }}
                 >
-                  {(['Новый','В производстве','Готов к отправке','Отправлен','Завершён'] as OrderStatus[]).map((s, i) => (
-                    <option key={s} value={i + 1}>{s}</option>
+                  {statuses.map((s) => (
+                    <option key={s.id} value={s.sort_order}>{s.name}</option>
                   ))}
                 </select>
                 <button onClick={() => setShowPresets(true)}>Пресеты</button>
@@ -123,11 +125,8 @@ export default function App() {
 
             {/* ====== ВСТАВЛЯЕМ ПРОГРЕСС-БАР ====== */}
             <ProgressBar
-              current={
-                (['Новый','В производстве','Готов к отправке','Отправлен','Завершён'] as OrderStatus[])[
-                  Math.min(Math.max(Number(selectedOrder.status) - 1, 0), 4)
-                ]
-              }
+              current={String(selectedOrder.status)}
+              totalSteps={Math.max(1, statuses.length || 5)}
               height="12px"
               fillColor="#1976d2"
               bgColor="#e0e0e0"

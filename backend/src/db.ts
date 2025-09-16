@@ -42,6 +42,12 @@ export async function initDB(): Promise<Database> {
       paymentUrl TEXT,
       paymentId TEXT
     );
+    CREATE TABLE IF NOT EXISTS order_statuses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
     CREATE TABLE IF NOT EXISTS items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       orderId INTEGER NOT NULL,
@@ -112,11 +118,28 @@ export async function initDB(): Promise<Database> {
     "ALTER TABLE users ADD COLUMN api_token TEXT",
     "ALTER TABLE users ADD COLUMN password_hash TEXT",
     "ALTER TABLE items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1",
+    "CREATE TABLE IF NOT EXISTS order_statuses (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT, sort_order INTEGER NOT NULL DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS idx_daily_reports_date ON daily_reports(report_date)",
     "CREATE INDEX IF NOT EXISTS idx_daily_reports_user ON daily_reports(user_id)"
   ]
   for (const sql of alters) {
     try { await db.exec(sql) } catch {}
+  }
+  // Seed order statuses if empty
+  const stRow = await db.get<{ c: number }>(`SELECT COUNT(1) as c FROM order_statuses`)
+  if (!stRow || Number((stRow as any).c) === 0) {
+    console.log('🌱 Seeding order statuses...')
+    const statuses = [
+      { name: 'Новый', color: '#9e9e9e', sort: 1 },
+      { name: 'В производстве', color: '#1976d2', sort: 2 },
+      { name: 'Готов к отправке', color: '#ffa000', sort: 3 },
+      { name: 'Отправлен', color: '#7b1fa2', sort: 4 },
+      { name: 'Завершён', color: '#2e7d32', sort: 5 }
+    ]
+    for (const s of statuses) {
+      await db.run('INSERT INTO order_statuses (name, color, sort_order) VALUES (?, ?, ?)', s.name, s.color, s.sort)
+    }
+    console.log('✅ Order statuses seeded')
   }
   // Seed users if empty
   const userCount = await db.get<{ c: number }>(`SELECT COUNT(1) as c FROM users`)

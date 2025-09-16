@@ -60,3 +60,5 @@ export const getPresets = () => api.get<PresetCategory[]>('/presets');
 export const getUsers = () => api.get<UserRef[]>('/users');
 export const createDailyReport = (data: { report_date: string; user_id?: number; orders_count?: number; total_revenue?: number }) =>
   api.post<DailyReport>('/daily', data);
+
+export const getOrderStatuses = () => api.get<Array<{ id: number; name: string; color?: string; sort_order: number }>>('/order-statuses');

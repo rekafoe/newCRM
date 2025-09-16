@@ -384,12 +384,58 @@ async function main() {
   app.delete(
     '/api/orders/:orderId/items/:itemId',
     asyncHandler(async (req, res) => {
-      await db.run(
-        'DELETE FROM items WHERE orderId = ? AND id = ?',
-        Number(req.params.orderId),
-        Number(req.params.itemId)
+      const orderId = Number(req.params.orderId)
+      const itemId = Number(req.params.itemId)
+
+      // Находим позицию и её состав материалов
+      const it = await db.get<{
+        id: number
+        type: string
+        params: string
+        quantity: number
+      }>(
+        'SELECT id, type, params, quantity FROM items WHERE orderId = ? AND id = ?',
+        orderId,
+        itemId
       )
-      res.status(204).end()
+
+      if (!it) {
+        // Нечего возвращать, просто 204
+        await db.run('DELETE FROM items WHERE orderId = ? AND id = ?', orderId, itemId)
+        res.status(204).end()
+        return
+      }
+
+      const paramsObj = JSON.parse(it.params || '{}') as { description?: string }
+      const composition = (await db.all<{
+        materialId: number
+        qtyPerItem: number
+      }>(
+        'SELECT materialId, qtyPerItem FROM product_materials WHERE presetCategory = ? AND presetDescription = ?',
+        it.type,
+        paramsObj.description || ''
+      )) as unknown as Array<{ materialId: number; qtyPerItem: number }>
+
+      await db.run('BEGIN')
+      try {
+        for (const c of composition) {
+          const returnQty = (c.qtyPerItem || 0) * Math.max(1, Number(it.quantity) || 1)
+          if (returnQty > 0) {
+            await db.run(
+              'UPDATE materials SET quantity = quantity + ? WHERE id = ?',
+              returnQty,
+              c.materialId
+            )
+          }
+        }
+
+        await db.run('DELETE FROM items WHERE orderId = ? AND id = ?', orderId, itemId)
+        await db.run('COMMIT')
+        res.status(204).end()
+      } catch (e) {
+        await db.run('ROLLBACK')
+        throw e
+      }
     })
   )
 
@@ -397,8 +443,58 @@ async function main() {
   app.delete(
     '/api/orders/:id',
     asyncHandler(async (req, res) => {
-      await db.run('DELETE FROM orders WHERE id = ?', Number(req.params.id))
-      res.status(204).end()
+      const id = Number(req.params.id)
+      // Собираем все позиции заказа и их состав
+      const items = (await db.all<{
+        id: number
+        type: string
+        params: string
+        quantity: number
+      }>(
+        'SELECT id, type, params, quantity FROM items WHERE orderId = ?',
+        id
+      )) as unknown as Array<{ id: number; type: string; params: string; quantity: number }>
+
+      // Агрегируем возвраты по materialId
+      const returns: Record<number, number> = {}
+      for (const it of items) {
+        const paramsObj = JSON.parse(it.params || '{}') as { description?: string }
+        const composition = (await db.all<{
+          materialId: number
+          qtyPerItem: number
+        }>(
+          'SELECT materialId, qtyPerItem FROM product_materials WHERE presetCategory = ? AND presetDescription = ?',
+          it.type,
+          paramsObj.description || ''
+        )) as unknown as Array<{ materialId: number; qtyPerItem: number }>
+        for (const c of composition) {
+          const add = (c.qtyPerItem || 0) * Math.max(1, Number(it.quantity) || 1)
+          returns[c.materialId] = (returns[c.materialId] || 0) + add
+        }
+      }
+
+      await db.run('BEGIN')
+      try {
+        for (const mid of Object.keys(returns)) {
+          const materialId = Number(mid)
+          const addQty = returns[materialId]
+          if (addQty > 0) {
+            await db.run(
+              'UPDATE materials SET quantity = quantity + ? WHERE id = ?',
+              addQty,
+              materialId
+            )
+          }
+        }
+
+        // Удаляем заказ (позиции удалятся каскадно)
+        await db.run('DELETE FROM orders WHERE id = ?', id)
+        await db.run('COMMIT')
+        res.status(204).end()
+      } catch (e) {
+        await db.run('ROLLBACK')
+        throw e
+      }
     })
   )
 
@@ -410,6 +506,17 @@ async function main() {
         'SELECT * FROM materials ORDER BY name'
       )
       res.json(materials)
+    })
+  )
+
+  // GET /api/order-statuses — список статусов для фронта
+  app.get(
+    '/api/order-statuses',
+    asyncHandler(async (_req, res) => {
+      const rows = await db.all<{ id: number; name: string; color: string | null; sort_order: number }>(
+        'SELECT id, name, color, sort_order FROM order_statuses ORDER BY sort_order'
+      )
+      res.json(rows)
     })
   )
 
