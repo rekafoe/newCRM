@@ -57,6 +57,19 @@ export async function initDB(): Promise<Database> {
       quantity INTEGER NOT NULL DEFAULT 1,
       FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS order_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      orderId INTEGER NOT NULL,
+      filename TEXT NOT NULL,
+      originalName TEXT,
+      mime TEXT,
+      size INTEGER,
+      uploadedAt TEXT DEFAULT (datetime('now')),
+      approved INTEGER NOT NULL DEFAULT 0,
+      approvedAt TEXT,
+      approvedBy INTEGER,
+      FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS materials (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,

@@ -15,7 +15,8 @@ import ManagePresetsModal from "./components/ManagePresetsModal";
 
 import { ProgressBar, OrderStatus } from "./components/order/ProgressBar";
 import { OrderTotal } from "./components/order/OrderTotal";
-import { setAuthToken, getOrderStatuses } from './api';
+import { setAuthToken, getOrderStatuses, listOrderFiles, uploadOrderFile, deleteOrderFile, approveOrderFile } from './api';
+import type { OrderFile } from './types';
 
 
 export default function App() {
@@ -25,11 +26,19 @@ export default function App() {
   const [showMaterials, setShowMaterials] = useState(false);
   const [showPresets, setShowPresets] = useState(false);
   const [statuses, setStatuses] = useState<Array<{ id: number; name: string; color?: string; sort_order: number }>>([]);
+  const [files, setFiles] = useState<OrderFile[]>([]);
 
   useEffect(() => {
     loadOrders();
     getOrderStatuses().then(r => setStatuses(r.data));
   }, []);
+  useEffect(() => {
+    if (selectedId) {
+      listOrderFiles(selectedId).then(r => setFiles(r.data));
+    } else {
+      setFiles([]);
+    }
+  }, [selectedId]);
 
   function loadOrders() {
     getOrders().then((res) => {
@@ -158,6 +167,50 @@ export default function App() {
                   </button>
                 </div>
               ))}
+            </div>
+
+            {/* ====== ФАЙЛЫ ЗАКАЗА ====== */}
+            <div className="order-total" style={{ marginTop: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong>Файлы макетов</strong>
+                <input type="file" onChange={async (e) => {
+                  const f = e.target.files?.[0]
+                  if (!f) return;
+                  try {
+                    await uploadOrderFile(selectedOrder.id, f);
+                    const r = await listOrderFiles(selectedOrder.id);
+                    setFiles(r.data);
+                    e.currentTarget.value = '';
+                  } catch { alert('Не удалось загрузить файл'); }
+                }} />
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {files.length === 0 && <span>Файлы не загружены</span>}
+                {files.map(f => (
+                  <div key={f.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <a href={`/api/uploads/${encodeURIComponent(f.filename)}`} target="_blank" rel="noreferrer">
+                      {f.originalName || f.filename}
+                    </a>
+                    <span style={{ fontSize: 12, color: '#666' }}>{(f.size ? Math.round(f.size/1024) : 0)} KB</span>
+                    {f.approved ? <span style={{ color: '#2e7d32' }}>✔ утверждено</span> : (
+                      <button onClick={async () => {
+                        try {
+                          await approveOrderFile(selectedOrder.id, f.id);
+                          const r = await listOrderFiles(selectedOrder.id);
+                          setFiles(r.data);
+                        } catch { alert('Не удалось утвердить файл'); }
+                      }}>Утвердить</button>
+                    )}
+                    <button className="btn-danger" onClick={async () => {
+                      try {
+                        await deleteOrderFile(selectedOrder.id, f.id);
+                        const r = await listOrderFiles(selectedOrder.id);
+                        setFiles(r.data);
+                      } catch { alert('Не удалось удалить файл'); }
+                    }}>Удалить</button>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* ====== ВСТАВЛЯЕМ ИТОГОВУЮ СУММУ ====== */}

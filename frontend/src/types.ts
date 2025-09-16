@@ -68,3 +68,16 @@ export interface DailyReport {
 }
 
 export interface UserRef { id: number; name: string }
+
+export interface OrderFile {
+  id: number;
+  orderId: number;
+  filename: string;
+  originalName?: string;
+  mime?: string;
+  size?: number;
+  uploadedAt: string;
+  approved: number;
+  approvedAt?: string;
+  approvedBy?: number;
+}

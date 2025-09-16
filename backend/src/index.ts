@@ -6,12 +6,31 @@ import { initDB } from './db'
 import { Order, Item, Material, ProductMaterial, DailyReport } from './types'
 import 'dotenv/config';
 import { createHash } from 'crypto'
+import path from 'path'
+import fs from 'fs'
+// Use require to avoid TS type resolution issues for multer
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const multer = require('multer') as any
 async function main() {
   const db = await initDB()
   const app = express()
 
   app.use(cors())
   app.use(express.json())
+  // Files storage
+  const uploadsDir = path.resolve(__dirname, '../uploads')
+  try { fs.mkdirSync(uploadsDir, { recursive: true }) } catch {}
+  const storage = multer.diskStorage({
+    destination: (_req: Request, _file: any, cb: (err: any, dest: string) => void) => cb(null, uploadsDir),
+    filename: (_req: Request, file: any, cb: (err: any, filename: string) => void) => {
+      const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+      const ext = path.extname(file.originalname || '')
+      cb(null, unique + ext)
+    }
+  })
+  const upload = multer({ storage })
+  app.use('/uploads', express.static(uploadsDir))
+  app.use('/api/uploads', express.static(uploadsDir))
   // Password auth
   app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body as { email: string; password: string }
@@ -506,6 +525,79 @@ async function main() {
         'SELECT * FROM materials ORDER BY name'
       )
       res.json(materials)
+    })
+  )
+
+  // ===== Files per order =====
+  // GET list
+  app.get(
+    '/api/orders/:id/files',
+    asyncHandler(async (req, res) => {
+      const id = Number(req.params.id)
+      const rows = await db.all<any>(
+        'SELECT id, orderId, filename, originalName, mime, size, uploadedAt, approved, approvedAt, approvedBy FROM order_files WHERE orderId = ? ORDER BY id DESC',
+        id
+      )
+      res.json(rows)
+    })
+  )
+  // POST upload
+  app.post(
+    '/api/orders/:id/files',
+    upload.single('file'),
+    asyncHandler(async (req, res) => {
+      const orderId = Number(req.params.id)
+      const f = (req as any).file as { filename: string; originalname?: string; mimetype?: string; size?: number } | undefined
+      if (!f) { res.status(400).json({ message: 'Файл не получен' }); return }
+      await db.run(
+        'INSERT INTO order_files (orderId, filename, originalName, mime, size) VALUES (?, ?, ?, ?, ?)',
+        orderId,
+        f.filename,
+        f.originalname || null,
+        f.mimetype || null,
+        f.size || null
+      )
+      const row = await db.get<any>(
+        'SELECT id, orderId, filename, originalName, mime, size, uploadedAt, approved, approvedAt, approvedBy FROM order_files WHERE orderId = ? ORDER BY id DESC LIMIT 1',
+        orderId
+      )
+      res.status(201).json(row)
+    })
+  )
+  // DELETE file
+  app.delete(
+    '/api/orders/:orderId/files/:fileId',
+    asyncHandler(async (req, res) => {
+      const orderId = Number(req.params.orderId)
+      const fileId = Number(req.params.fileId)
+      const row = await db.get<any>('SELECT filename FROM order_files WHERE id = ? AND orderId = ?', fileId, orderId)
+      if (row && row.filename) {
+        const p = path.join(uploadsDir, String(row.filename))
+        try { fs.unlinkSync(p) } catch {}
+      }
+      await db.run('DELETE FROM order_files WHERE id = ? AND orderId = ?', fileId, orderId)
+      res.status(204).end()
+    })
+  )
+  // APPROVE file
+  app.post(
+    '/api/orders/:orderId/files/:fileId/approve',
+    asyncHandler(async (req, res) => {
+      const orderId = Number(req.params.orderId)
+      const fileId = Number(req.params.fileId)
+      const user = (req as any).user as { id: number } | undefined
+      await db.run(
+        "UPDATE order_files SET approved = 1, approvedAt = datetime('now'), approvedBy = ? WHERE id = ? AND orderId = ?",
+        user?.id ?? null,
+        fileId,
+        orderId
+      )
+      const row = await db.get<any>(
+        'SELECT id, orderId, filename, originalName, mime, size, uploadedAt, approved, approvedAt, approvedBy FROM order_files WHERE id = ? AND orderId = ?',
+        fileId,
+        orderId
+      )
+      res.json(row)
     })
   )
 

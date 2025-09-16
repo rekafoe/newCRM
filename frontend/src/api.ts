@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Order, Item, PresetCategory, MaterialRow, Material, DailyReport, UserRef } from './types';
+import { Order, Item, PresetCategory, MaterialRow, Material, DailyReport, UserRef, OrderFile } from './types';
 const api = axios.create({ baseURL: '/api' });
 
 // Attach auth token from localStorage for protected endpoints
@@ -62,3 +62,13 @@ export const createDailyReport = (data: { report_date: string; user_id?: number;
   api.post<DailyReport>('/daily', data);
 
 export const getOrderStatuses = () => api.get<Array<{ id: number; name: string; color?: string; sort_order: number }>>('/order-statuses');
+
+// Files API
+export const listOrderFiles = (orderId: number) => api.get<OrderFile[]>(`/orders/${orderId}/files`);
+export const uploadOrderFile = (orderId: number, file: File) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return api.post<OrderFile>(`/orders/${orderId}/files`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+};
+export const deleteOrderFile = (orderId: number, fileId: number) => api.delete(`/orders/${orderId}/files/${fileId}`);
+export const approveOrderFile = (orderId: number, fileId: number) => api.post<OrderFile>(`/orders/${orderId}/files/${fileId}/approve`, {});
