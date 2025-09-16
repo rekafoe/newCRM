@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Material } from '../types';
-import { getMaterials, saveMaterial, deleteMaterial } from '../api';
+import { getMaterials, saveMaterial, deleteMaterial, getMaterialMoves } from '../api';
 
 interface FormState {
   id?: number;
@@ -17,6 +17,9 @@ interface Props {
 export default function ManageMaterialsModal({ onClose }: Props) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [edit, setEdit] = useState<FormState>({ name: '', unit: '', quantity: 0 });
+  const [showMoves, setShowMoves] = useState(false);
+  const [moves, setMoves] = useState<any[]>([]);
+  const [filter, setFilter] = useState<{ materialId?: number | ''; orderId?: number | ''; user_id?: number | ''; from?: string; to?: string }>({});
 
   useEffect(() => {
     load();
@@ -36,6 +39,27 @@ export default function ManageMaterialsModal({ onClose }: Props) {
   return (
     <div className="modal">
       <h3>Materials Stock</h3>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        <button onClick={async () => {
+          const params: any = {}
+          if (filter.materialId) params.materialId = filter.materialId
+          if (filter.orderId) params.orderId = filter.orderId
+          if (filter.user_id) params.user_id = filter.user_id
+          if (filter.from) params.from = filter.from
+          if (filter.to) params.to = filter.to
+          const res = await getMaterialMoves(params)
+          setMoves(res.data)
+          setShowMoves(true)
+        }}>История движений</button>
+        <select value={filter.materialId || ''} onChange={e => setFilter(s => ({ ...s, materialId: e.target.value ? Number(e.target.value) : '' }))}>
+          <option value="">Все материалы</option>
+          {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+        <input placeholder="OrderId" value={filter.orderId || ''} onChange={e => setFilter(s => ({ ...s, orderId: e.target.value ? Number(e.target.value) : '' }))} />
+        <input placeholder="UserId" value={filter.user_id || ''} onChange={e => setFilter(s => ({ ...s, user_id: e.target.value ? Number(e.target.value) : '' }))} />
+        <input type="date" value={filter.from || ''} onChange={e => setFilter(s => ({ ...s, from: e.target.value }))} />
+        <input type="date" value={filter.to || ''} onChange={e => setFilter(s => ({ ...s, to: e.target.value }))} />
+      </div>
       <table>
         <thead>
           <tr><th>Name</th><th>Unit</th><th>Qty</th><th>Min</th><th/></tr>
@@ -88,6 +112,38 @@ export default function ManageMaterialsModal({ onClose }: Props) {
         </tbody>
       </table>
       <button onClick={onClose}>Close</button>
+      {showMoves && (
+        <div className="modal" style={{ marginTop: 12 }}>
+          <h4>История движений</h4>
+          <div style={{ maxHeight: 240, overflow: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Материал</th>
+                  <th>Δ</th>
+                  <th>Причина</th>
+                  <th>Заказ</th>
+                  <th>User</th>
+                </tr>
+              </thead>
+              <tbody>
+                {moves.map(mv => (
+                  <tr key={mv.id}>
+                    <td>{mv.created_at}</td>
+                    <td>{mv.material_name}</td>
+                    <td>{mv.delta}</td>
+                    <td>{mv.reason || ''}</td>
+                    <td>{mv.orderId || ''}</td>
+                    <td>{mv.user_id || ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button onClick={() => setShowMoves(false)}>Закрыть</button>
+        </div>
+      )}
     </div>
   );
 }

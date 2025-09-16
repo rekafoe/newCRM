@@ -213,8 +213,9 @@ async function main() {
         materialId: number
         qtyPerItem: number
         quantity: number
+        min_quantity: number | null
       }>(
-        `SELECT pm.materialId, pm.qtyPerItem, m.quantity
+        `SELECT pm.materialId, pm.qtyPerItem, m.quantity, m.min_quantity as min_quantity
            FROM product_materials pm
            JOIN materials m ON m.id = pm.materialId
            WHERE pm.presetCategory = ? AND pm.presetDescription = ?`,
@@ -224,6 +225,7 @@ async function main() {
         materialId: number
         qtyPerItem: number
         quantity: number
+        min_quantity: number | null
       }>
 
       // Транзакция: проверка остатков, списание и вставка позиции
@@ -231,8 +233,9 @@ async function main() {
       try {
         for (const n of needed) {
           const needQty = n.qtyPerItem * Math.max(1, Number(quantity) || 1)
-          if (n.quantity < needQty) {
-            const err: any = new Error(`Недостаточно материала ID=${n.materialId}`)
+          const minQ = n.min_quantity == null ? -Infinity : Number(n.min_quantity)
+          if (n.quantity - needQty < minQ) {
+            const err: any = new Error(`Недостаточно материала с учётом минимального остатка ID=${n.materialId}`)
             err.status = 400
             throw err
           }
