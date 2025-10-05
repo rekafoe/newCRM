@@ -9,21 +9,13 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
       - key: DATABASE_URL
         fromDatabase:
           name: crm-database
           property: connectionString
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_WEBHOOK_URL
-        sync: false
 
-  - type: web
+  - type: static
     name: crm-frontend
-    env: static
-    plan: free
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: ./frontend/dist
     routes:
@@ -34,5 +26,3 @@ services:
 databases:
   - name: crm-database
     plan: free
-    databaseName: crm_production
-    user: crm_user
